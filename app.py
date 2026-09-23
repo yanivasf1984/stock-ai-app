@@ -19,7 +19,7 @@ def main():
         if ticker:
             # משיכת נתוני שוק
           df = yf.Ticker(ticker).history(period="6mo")
-            if not df.empty:
+            ifnot df.empty:
                 # ציור גרף נרות (Candlesticks) מקצועי במקום גרף קווים פשוט
                 fig = go.Figure(data=[go.Candlestick(x=df.index,
                                 open=df['Open'], high=df['High'],

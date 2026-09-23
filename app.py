@@ -6,11 +6,9 @@ from plotly.subplots import make_subplots
 import ta
 import requests
 
-# 1. הגדרות תצוגה
 st.set_page_config(page_title="AI Quant Fund", layout="wide", initial_sidebar_state="expanded")
 
 def send_telegram_message(token, chat_id, text):
-    """פונקציה קטנה ששולחת את ההתראה לטלגרם מאחורי הקלעים"""
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         requests.post(url, json={"chat_id": chat_id, "text": text})
@@ -20,10 +18,8 @@ def send_telegram_message(token, chat_id, text):
 def main():
     st.title("🤖 AI Quant Fund - פלטפורמת מסחר וסריקה")
     
-    # חלוקה ל-3 כרטיסיות העבודה שביקשת
     tab_trade, tab_backtest, tab_settings = st.tabs(["📊 מסוף מסחר ואינדיקטורים", "🔄 סימולציית אסטרטגיות (Backtest)", "⚙️ סורק אוטומטי וטלגרם"])
     
-    # --- מנוע 1: מסוף המסחר (הגרפים הישנים + בינה מלאכותית) ---
     with tab_trade:
         col1, col2 = st.columns([4, 1])
         with col2:
@@ -33,34 +29,53 @@ def main():
         if ticker:
             df = yf.Ticker(ticker).history(period=period)
             if not df.empty:
-                # החזרת האינדיקטורים המוכרים מהגרסה הקודמת
+                # ממוצעים למחיר
                 df['SMA_20'] = ta.trend.sma_indicator(df['Close'], window=20)
                 df['SMA_50'] = ta.trend.sma_indicator(df['Close'], window=50)
+                
+                # אינדיקטור RSI
                 df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
                 
+                # ממוצעים לזרימת הכסף (Volume)
+                df['Vol_SMA_20'] = df['Volume'].rolling(window=20).mean()
+                df['Vol_SMA_50'] = df['Volume'].rolling(window=50).mean()
+                
+                # צבעי העמודות: כסף נכנס (ירוק) או יוצא (אדום)
+                colors = ['green' if row['Close'] >= row['Open'] else 'red' for index, row in df.iterrows()]
+                
                 with col1:
-                    # יצירת גרף מפוצל: נרות למעלה, RSI למטה
-                    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                                        vertical_spacing=0.03, row_heights=[0.7, 0.3])
+                    # יצירת גרף מפוצל ל-3 קומות
+                    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
+                                        vertical_spacing=0.03, row_heights=[0.5, 0.25, 0.25])
                     
-                    # הוספת הנרות היפניים והממוצעים הנעים למסך העליון
+                    # קומה 1: נרות יפניים וממוצעי מחיר (20 ו-50)
                     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], 
                                                  low=df['Low'], close=df['Close'], name='מחיר'), row=1, col=1)
-                    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='blue', width=1), name='SMA 20'), row=1, col=1)
-                    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], line=dict(color='orange', width=1), name='SMA 50'), row=1, col=1)
+                    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='blue', width=1), name='מחיר SMA 20'), row=1, col=1)
+                    fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], line=dict(color='orange', width=1), name='מחיר SMA 50'), row=1, col=1)
                     
-                    # הוספת מדד ה-RSI למסך התחתון עם קווי אזהרה
+                    # קומה 2: אינדיקטור RSI
                     fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='purple', width=1.5), name='RSI'), row=2, col=1)
                     fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
                     fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
                     
-                    fig.update_layout(height=650, xaxis_rangeslider_visible=False, margin=dict(t=30, b=0, l=0, r=0))
+                    # קומה 3: זרימת כסף (Volume) וממוצעי כסף (20 ו-50)
+                    fig.add_trace(go.Bar(x=df.index, y=df['Volume'], marker_color=colors, name='זרימת כסף'), row=3, col=1)
+                    fig.add_trace(go.Scatter(x=df.index, y=df['Vol_SMA_20'], line=dict(color='blue', width=1), name='כסף SMA 20'), row=3, col=1)
+                    fig.add_trace(go.Scatter(x=df.index, y=df['Vol_SMA_50'], line=dict(color='orange', width=1), name='כסף SMA 50'), row=3, col=1)
+                    
+                    fig.update_layout(height=750, xaxis_rangeslider_visible=False, margin=dict(t=30, b=0, l=0, r=0))
                     st.plotly_chart(fig, use_container_width=True)
                 
                 with col2:
                     st.markdown("### 🧠 מודל החלטות")
                     current_rsi = df['RSI'].iloc[-1]
-                    # לוגיקת מסחר בסיסית מבוססת מומנטום
+                    
+                    # בדיקה האם הכסף שנכנס היום גבוה מממוצע 20 הימים האחרונים
+                    current_vol = df['Volume'].iloc[-1]
+                    vol_sma20 = df['Vol_SMA_20'].iloc[-1]
+                    money_trend = "🟢 כסף נכנס גבוה מהממוצע" if current_vol > vol_sma20 else "🔴 כסף נכנס נמוך מהממוצע"
+                    
                     if current_rsi < 30:
                         st.success("🟢 איתות קנייה (Oversold)")
                     elif current_rsi > 70:
@@ -70,28 +85,26 @@ def main():
                         
                     st.metric("RSI נוכחי", f"{current_rsi:.1f}")
                     st.metric("מחיר סגירה אחרון", f"${df['Close'].iloc[-1]:.2f}")
+                    st.write(money_trend)
 
-    # --- מנוע 2: סימולציה ובדיקה לאחור ---
     with tab_backtest:
         st.subheader("מנוע בדיקת אסטרטגיה היסטורית (Backtest)")
         st.write("מנוע זה בודק מה היה קורה אילו סחרת במניה זו לפי חוקי ה-RSI, לעומת החזקה פסיבית שלה.")
         
         if 'df' in locals() and not df.empty:
             if st.button("▶️ הרץ סימולציה על נתוני העבר"):
-                initial_capital = 10000 # קופת התחלה של 10,000 דולר
+                initial_capital = 10000 
                 capital = initial_capital
                 position = 0
                 
-                # מעבר על כל ימי המסחר בהיסטוריה שהורדנו
                 for i in range(1, len(df)):
-                    if df['RSI'].iloc[i-1] < 30 and position == 0:  # קנייה בתחתית
+                    if df['RSI'].iloc[i-1] < 30 and position == 0:  
                         position = capital / df['Close'].iloc[i]
                         capital = 0
-                    elif df['RSI'].iloc[i-1] > 70 and position > 0: # מכירה בשיא
+                    elif df['RSI'].iloc[i-1] > 70 and position > 0: 
                         capital = position * df['Close'].iloc[i]
                         position = 0
                 
-                # חישוב ערך סופי
                 final_value = capital if position == 0 else position * df['Close'].iloc[-1]
                 profit_pct = ((final_value - initial_capital) / initial_capital) * 100
                 buy_hold_pct = ((df['Close'].iloc[-1] - df['Close'].iloc[0]) / df['Close'].iloc[0]) * 100
@@ -101,7 +114,6 @@ def main():
                 col_b2.metric("רווח קנייה והחזקה (פסיבי)", f"{buy_hold_pct:.2f}%")
                 col_b3.metric("הון סופי מקופת $10,000", f"${final_value:,.2f}")
 
-    # --- מנוע 3: סורק שוק אוטומטי והתראות טלגרם ---
     with tab_settings:
         col_s1, col_s2 = st.columns(2)
         with col_s1:
@@ -123,7 +135,6 @@ def main():
                         if not data.empty and len(data) > 15:
                             data['RSI'] = ta.momentum.rsi(data['Close'], window=14)
                             rsi_val = data['RSI'].iloc[-1]
-                            # תנאי מציאת הזדמנות
                             if rsi_val < 30:
                                 found_signals.append(f"🟢 איתות קנייה: {t} (RSI: {rsi_val:.1f})")
                             elif rsi_val > 70:

@@ -17,9 +17,10 @@ def main():
         ticker = st.text_input("הכנס סימול מניה (למשל SPY, TSLA, AAPL):", "SPY")
         
         if ticker:
-            # משיכת נתוני שוק
-          df = yf.Ticker(ticker).history(period="6mo")
-            ifnot df.empty:
+            # משיכת נתוני שוק בשיטה המעודכנת והתקינה
+            df = yf.Ticker(ticker).history(period="6mo")
+            
+            if not df.empty:
                 # ציור גרף נרות (Candlesticks) מקצועי במקום גרף קווים פשוט
                 fig = go.Figure(data=[go.Candlestick(x=df.index,
                                 open=df['Open'], high=df['High'],
@@ -36,7 +37,7 @@ def main():
     with tab_settings:
         st.subheader("ניהול סיכונים והתראות טלגרם")
         
-        # פרטי הטלגרם שלך (כבר מוזנים אוטומטית לפי מה שעבד לנו)
+        # פרטי הטלגרם שלך (כבר מוזנים אוטומטית)
         tg_token = st.text_input("Telegram Bot Token:", value="8979601396:AAFQjLLDf81HJPh8RjkpcpzQYxYAAHd8jpw", type="password")
         tg_chat_id = st.text_input("Telegram Chat ID:", value="5117812191")
         

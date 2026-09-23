@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import ta
 import requests
 
+# הגדרות תצוגה
 st.set_page_config(page_title="AI Quant Fund", layout="wide", initial_sidebar_state="expanded")
 
 # פונקציה חכמה שמושכת את כל 500 מניות מדד ה-S&P 500 לייצור רשימת בחירה

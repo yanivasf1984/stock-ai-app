@@ -8,6 +8,18 @@ import requests
 
 st.set_page_config(page_title="AI Quant Fund", layout="wide", initial_sidebar_state="expanded")
 
+# פונקציה חכמה שמושכת את כל 500 מניות מדד ה-S&P 500 לייצור רשימת בחירה
+@st.cache_data
+def get_stock_universe():
+    try:
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        table = pd.read_html(url)[0]
+        tickers = table['Symbol'].tolist()
+        tickers.extend(['SPY', 'QQQ', 'DIA', 'IWM', 'VTI']) # תוספת תעודות סל
+        return sorted(list(set(tickers)))
+    except:
+        return sorted(['SPY', 'QQQ', 'AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL'])
+
 def send_telegram_message(token, chat_id, text):
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -16,6 +28,33 @@ def send_telegram_message(token, chat_id, text):
         pass
 
 def main():
+    # טעינת מאגר המניות
+    all_tickers = get_stock_universe()
+    default_index = all_tickers.index('SPY') if 'SPY' in all_tickers else 0
+
+    # הגדרת זיכרון לרשימת המעקב האישית
+    if 'watchlist' not in st.session_state:
+        st.session_state.watchlist = ['SPY', 'QQQ', 'NVDA', 'TSLA']
+
+    # --- סרגל צד: ניהול רשימת מעקב (Watchlist) ---
+    st.sidebar.header("📋 רשימת מעקב אישית")
+    
+    new_ticker = st.sidebar.selectbox("חפש מניה להוספה:", all_tickers)
+    if st.sidebar.button("➕ הוסף לרשימה"):
+        if new_ticker not in st.session_state.watchlist:
+            st.session_state.watchlist.append(new_ticker)
+            st.sidebar.success(f"{new_ticker} נוספה למעקב!")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.write("**המניות שלך:**")
+    for t in st.session_state.watchlist:
+        st.sidebar.markdown(f"🔹 **{t}**")
+        
+    if st.sidebar.button("🗑️ נקה רשימה"):
+        st.session_state.watchlist = []
+        st.rerun()
+
+    # --- תחילת המסך הראשי ---
     st.title("🤖 AI Quant Fund - פלטפורמת מסחר וסריקה")
     
     tab_trade, tab_backtest, tab_settings = st.tabs(["📊 מסוף מסחר ואינדיקטורים", "🔄 סימולציית אסטרטגיות (Backtest)", "⚙️ סורק אוטומטי וטלגרם"])
@@ -23,43 +62,33 @@ def main():
     with tab_trade:
         col1, col2 = st.columns([4, 1])
         with col2:
-            ticker = st.text_input("סימול מניה:", "SPY")
+            # התיבה הזו עכשיו כוללת השלמה אוטומטית מתוך מאגר ה-S&P 500
+            ticker = st.selectbox("חפש ובחר מניה לניתוח:", all_tickers, index=default_index)
             period = st.selectbox("תקופת זמן:", ["3mo", "6mo", "1y", "2y", "5y"], index=1)
             
         if ticker:
             df = yf.Ticker(ticker).history(period=period)
             if not df.empty:
-                # ממוצעים למחיר
                 df['SMA_20'] = ta.trend.sma_indicator(df['Close'], window=20)
                 df['SMA_50'] = ta.trend.sma_indicator(df['Close'], window=50)
-                
-                # אינדיקטור RSI
                 df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
-                
-                # ממוצעים לזרימת הכסף (Volume)
                 df['Vol_SMA_20'] = df['Volume'].rolling(window=20).mean()
                 df['Vol_SMA_50'] = df['Volume'].rolling(window=50).mean()
-                
-                # צבעי העמודות: כסף נכנס (ירוק) או יוצא (אדום)
                 colors = ['green' if row['Close'] >= row['Open'] else 'red' for index, row in df.iterrows()]
                 
                 with col1:
-                    # יצירת גרף מפוצל ל-3 קומות
                     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                                         vertical_spacing=0.03, row_heights=[0.5, 0.25, 0.25])
                     
-                    # קומה 1: נרות יפניים וממוצעי מחיר (20 ו-50)
                     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], 
                                                  low=df['Low'], close=df['Close'], name='מחיר'), row=1, col=1)
                     fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], line=dict(color='blue', width=1), name='מחיר SMA 20'), row=1, col=1)
                     fig.add_trace(go.Scatter(x=df.index, y=df['SMA_50'], line=dict(color='orange', width=1), name='מחיר SMA 50'), row=1, col=1)
                     
-                    # קומה 2: אינדיקטור RSI
                     fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='purple', width=1.5), name='RSI'), row=2, col=1)
                     fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
                     fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
                     
-                    # קומה 3: זרימת כסף (Volume) וממוצעי כסף (20 ו-50)
                     fig.add_trace(go.Bar(x=df.index, y=df['Volume'], marker_color=colors, name='זרימת כסף'), row=3, col=1)
                     fig.add_trace(go.Scatter(x=df.index, y=df['Vol_SMA_20'], line=dict(color='blue', width=1), name='כסף SMA 20'), row=3, col=1)
                     fig.add_trace(go.Scatter(x=df.index, y=df['Vol_SMA_50'], line=dict(color='orange', width=1), name='כסף SMA 50'), row=3, col=1)
@@ -70,10 +99,9 @@ def main():
                 with col2:
                     st.markdown("### 🧠 מודל החלטות")
                     current_rsi = df['RSI'].iloc[-1]
-                    
-                    # בדיקה האם הכסף שנכנס היום גבוה מממוצע 20 הימים האחרונים
                     current_vol = df['Volume'].iloc[-1]
                     vol_sma20 = df['Vol_SMA_20'].iloc[-1]
+                    
                     money_trend = "🟢 כסף נכנס גבוה מהממוצע" if current_vol > vol_sma20 else "🔴 כסף נכנס נמוך מהממוצע"
                     
                     if current_rsi < 30:
@@ -89,8 +117,6 @@ def main():
 
     with tab_backtest:
         st.subheader("מנוע בדיקת אסטרטגיה היסטורית (Backtest)")
-        st.write("מנוע זה בודק מה היה קורה אילו סחרת במניה זו לפי חוקי ה-RSI, לעומת החזקה פסיבית שלה.")
-        
         if 'df' in locals() and not df.empty:
             if st.button("▶️ הרץ סימולציה על נתוני העבר"):
                 initial_capital = 10000 
@@ -122,13 +148,12 @@ def main():
             tg_chat_id = st.text_input("Telegram Chat ID:", value="5117812191")
         
         with col_s2:
-            st.subheader("🔎 סורק הזדמנויות בשוק")
-            scan_list = st.text_input("רשימת מניות לסריקה (מופרדות בפסיק):", "SPY,QQQ,AAPL,TSLA,MSFT,NVDA")
+            st.subheader("🔎 סורק הזדמנויות לפי רשימת מעקב")
+            # התיבה הזו מאפשרת לבחור כמה מניות שרוצים מתוך המאגר, וכברירת מחדל מושכת את רשימת המעקב שלך
+            tickers_to_scan = st.multiselect("בחר מניות לסריקה כעת:", all_tickers, default=st.session_state.watchlist)
             
             if st.button("🚀 הפעל סריקת שוק עכשיו"):
-                tickers_to_scan = [x.strip() for x in scan_list.split(",")]
                 found_signals = []
-                
                 with st.spinner("סורק את השוק ומנתח אינדיקטורים..."):
                     for t in tickers_to_scan:
                         data = yf.Ticker(t).history(period="1mo")

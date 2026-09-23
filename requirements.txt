@@ -1,7 +1,8 @@
 streamlit
 pandas
-numpy
+yfinance
 scikit-learn
+xgboost
+ta
 plotly
-requests
-urllib3
+schedule

@@ -266,10 +266,9 @@ if st.sidebar.button("🗑️ הסר מהרשימה") and remove_ticker != "-- �
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.header("📱 הגדרות בוט טלגרם (אופציונלי)")
-tg_token = st.sidebar.text_input("Telegram Bot Token:", type="8979601396:AAFQJlLDf81HJPh8RjkpcpzQYxYAAHd8jpw")
-tg_chat_id = st.sidebar.text_input("Telegram Chat ID:5117812191")
-
+st.sidebar.header("📱 הגדרות בוט טלגרם")
+tg_token = st.sidebar.text_input("Telegram Bot Token:", value="8979601396:AAFQjLLDf81HJPh8RjkpcpzQYxYAAHd8jpw", type="password")
+tg_chat_id = st.sidebar.text_input("Telegram Chat ID:", value="5117812191")
 # ---------------------------------------------------------
 # מצב 1: ניתוח מניה בודדת
 # ---------------------------------------------------------

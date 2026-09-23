@@ -1,32 +1,5 @@
-import sys
 import os
 import json
-import subprocess
-
-# 1. מנגנון הרצה אוטומטי מתוך IDLE
-IS_STREAMLIT = os.environ.get("RUNNING_IN_STREAMLIT") == "1"
-
-if __name__ == "__main__" and not IS_STREAMLIT:
-    for pkg in ["requests", "pandas", "numpy", "scikit-learn", "streamlit", "plotly"]:
-        try:
-            __import__(pkg)
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
-    
-    print("\n" + "="*60)
-    print("   [+] מפעיל את שרת ה-AI הכל-כולל-הכל (Backtest + Telegram + Cloud)...   ")
-    print("="*60)
-    
-    env = os.environ.copy()
-    env["RUNNING_IN_STREAMLIT"] = "1"
-    script_path = os.path.abspath(__file__)
-    
-    subprocess.run([sys.executable, "-m", "streamlit", "run", script_path], env=env)
-    sys.exit()
-
-# ---------------------------------------------------------
-# קוד האפליקציה הרץ בדפדפן (Streamlit Dashboard):
-# ---------------------------------------------------------
 import urllib3
 import requests
 import pandas as pd
@@ -253,7 +226,6 @@ def process_features_and_model(df):
 # --- מודול בדיקה לאחור (Backtesting Engine) ---
 def run_backtest(df):
     df_bt = df.copy()
-    # איתות קנייה: ממוצע 20 מעל 50 + CMF חיובי + ADX > 20
     df_bt['Signal'] = np.where(
         (df_bt['SMA_20'] > df_bt['SMA_50']) & (df_bt['CMF'] > 0) & (df_bt['ADX'] > 20), 1, 0
     )
@@ -348,7 +320,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 obv_status = "איסוף סחורה 🟢" if obv_trend_val > 0.5 else ("פיזור סחורה 🔴" if obv_trend_val < -0.5 else "ניטרלי 🟡")
                 col4.metric("נפח צבור (OBV)", f"{obv_trend_val:+.2f}", obv_status)
 
-                # --- התראות בלייב ושליחה לטלגרם ---
                 st.markdown("---")
                 st.markdown("### 🔔 התראות מערכת אוטומטיות (Real-Time Alerts)")
                 
@@ -373,7 +344,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                         elif alert_type == "error": st.error(msg)
                         elif alert_type == "info": st.info(msg)
 
-                # כפתור שליחה לטלגרם
                 if st.button("📲 שלח דוח ניתוח זה לטלגרם"):
                     rec_text = "BUY" if (avg_prob >= 54 and adx_val > 20) else ("HOLD" if avg_prob >= 48 else "SELL")
                     msg_body = (
@@ -416,7 +386,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                         else:
                             st.write("לחץ מכירות, זרימת כסף שלילית החוצה או שבירת תמיכות.")
 
-                # --- מחשבון ניהול סיכונים ---
                 st.markdown("---")
                 st.markdown("### 🛡️ ניהול סיכונים ותכנון עסקה (Risk Management)")
                 
@@ -439,7 +408,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 st.info(f"💡 **המלצת כמות לעסקה:** לקניית **{shares_to_buy}** מניות בסכום כולל של **{curr}{total_investment:,.2f}**.\n\n"
                         f"אם העסקה תיגע ב-Stop Loss ({curr}{stop_loss:.2f}), ההפסד המקסימלי שלך יהיה **{curr}{max_loss_allowed:,.2f}** ({risk_pct}% מהתיק).")
 
-                # --- מודול בדיקה לאחור (Backtesting Engine Display) ---
                 st.markdown("---")
                 with st.expander("🧪 **לחץ כאן לצפייה בסימולציה היסטורית (Backtesting)**", expanded=False):
                     df_bt, total_strat, total_bench, win_rate = run_backtest(df)
@@ -455,7 +423,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                     fig_bt.update_layout(title="השוואת תשואה מצטברת ב-2 השנים האחרונות (%)", template="plotly_white", height=400)
                     st.plotly_chart(fig_bt, use_container_width=True)
 
-                # --- גרפים טכניים ---
                 st.markdown("---")
                 st.markdown("### 📊 ניתוח ויזואלי מתקדם (ממוצעים, CMF, ADX)")
                 

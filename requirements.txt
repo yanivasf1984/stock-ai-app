@@ -6,3 +6,5 @@ xgboost
 ta
 plotly
 schedule
+html5lib
+lxml

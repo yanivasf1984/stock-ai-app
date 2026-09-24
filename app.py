@@ -14,9 +14,29 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="AI Stock Analytics Pro - Master Edition", page_icon="📈", layout="wide")
 
+# --- משיכת מאגר המניות (ארה"ב + ישראל) מהגרסה הקודמת ---
+@st.cache_data
+def get_stock_universe():
+    israeli_stocks = [
+        'LEUMI.TA', 'POALIM.TA', 'DISC.TA', 'MZRN.TA', 'FIBI.TA', 
+        'NICE.TA', 'ESLT.TA', 'ICL.TA', 'TSEM.TA', 'BEZQ.TA', 'ENOG.TA', 
+        'ALHE.TA', 'PHOE1.TA', 'HARL.TA', 'DEDN.TA', 'SPEN.TA', 'NVMI.TA'
+    ]
+    etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT', 'GLD']
+    try:
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        response = requests.get(url, headers=headers, timeout=5)
+        table = pd.read_html(response.text)[0]
+        us_stocks = table['Symbol'].tolist()
+        return sorted(list(set(us_stocks + israeli_stocks + etfs)))
+    except:
+        fallback = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL']
+        return sorted(list(set(fallback + israeli_stocks + etfs)))
+
 # --- ניהול שמירה אוטומטית של רשימת מעקב ---
 WATCHLIST_FILE = "watchlist.json"
-DEFAULT_WATCHLIST = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'LUMI.TA', 'AMZN', 'GOOGL', 'META', 'POLI.TA', 'TEVA']
+DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'NVDA', 'LEUMI.TA', 'TSLA']
 
 def load_watchlist():
     if os.path.exists(WATCHLIST_FILE):
@@ -139,6 +159,9 @@ def process_features_and_model(df):
     
     df['SMA_20'] = df['Close'].rolling(20).mean()
     df['SMA_50'] = df['Close'].rolling(50).mean()
+    df['Vol_SMA_20'] = df['Volume'].rolling(20).mean() # תוספת נפח מסחר
+    df['Vol_SMA_50'] = df['Volume'].rolling(50).mean() # תוספת נפח מסחר
+    
     df['SMA_20_Ratio'] = df['Close'] / df['SMA_20']
     df['SMA_Trend'] = df['SMA_20'] / df['SMA_50']
     
@@ -245,17 +268,25 @@ def run_backtest(df):
     
     return df_bt, total_strat, total_bench, win_rate
 
+# משיכת המאגר לפאנל הצידי
+all_tickers = get_stock_universe()
+default_index = all_tickers.index('SPY') if 'SPY' in all_tickers else 0
+
 st.sidebar.title("🎮 מצבי עבודה")
-app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 רשימת מעקב (Watchlist)"])
+app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק אוטומטי לטלגרם"])
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ ניהול רשימת מעקב")
-new_ticker = st.sidebar.text_input("הוסף מניה לרשימת המעקב:").strip().upper()
-if st.sidebar.button("➕ הוסף לרשימה") and new_ticker:
-    if new_ticker not in st.session_state.watchlist:
-        st.session_state.watchlist.append(new_ticker)
+new_ticker_sel = st.sidebar.selectbox("בחר מניה להוספה:", all_tickers)
+new_ticker_man = st.sidebar.text_input("או הקלד ידנית (למשל ICL.TA):")
+
+if st.sidebar.button("➕ הוסף לרשימה"):
+    ticker_to_add = new_ticker_man.strip().upper() if new_ticker_man.strip() else new_ticker_sel
+    if ticker_to_add and ticker_to_add not in st.session_state.watchlist:
+        st.session_state.watchlist.append(ticker_to_add)
         save_watchlist(st.session_state.watchlist)
-        st.sidebar.success(f"התווספה ונשמרה: {new_ticker}")
+        st.sidebar.success(f"התווספה ונשמרה: {ticker_to_add}")
+        st.rerun()
 
 remove_ticker = st.sidebar.selectbox("הסר מניה מהרשימה:", ["-- בחר --"] + st.session_state.watchlist)
 if st.sidebar.button("🗑️ הסר מהרשימה") and remove_ticker != "-- בחר --":
@@ -266,15 +297,18 @@ if st.sidebar.button("🗑️ הסר מהרשימה") and remove_ticker != "-- �
 
 st.sidebar.markdown("---")
 st.sidebar.header("📱 הגדרות בוט טלגרם")
-tg_token = st.sidebar.text_input("Telegram Bot Token:", type="password")
-tg_chat_id = st.sidebar.text_input("Telegram Chat ID:")
+# הוטמעו הפרטים שלך באופן אוטומטי מהגרסה הקודמת
+tg_token = st.sidebar.text_input("Telegram Bot Token:", value="8979601396:AAFQjLLDf81HJPh8RjkpcpzQYxYAAHd8jpw", type="password")
+tg_chat_id = st.sidebar.text_input("Telegram Chat ID:", value="5117812191")
 
 if app_mode == "🔍 ניתוח מניה בודדת":
     st.title("🔍 ניתוח מעמיק, התראות בלייב וסימולציה היסטורית")
     
     st.sidebar.markdown("---")
-    st.sidebar.header("🔎 חיפוש מניה")
-    target_ticker = st.sidebar.text_input("הקלד סימול מניה (למשל AAPL, TSLA, LUMI.TA):", value="AAPL").strip().upper()
+    st.sidebar.header("🔎 חיפוש מניה לניתוח")
+    selected_ticker = st.sidebar.selectbox("מהמאגר:", all_tickers, index=default_index)
+    manual_ticker = st.sidebar.text_input("או חופשי (למשל TSLA):")
+    target_ticker = manual_ticker.strip().upper() if manual_ticker.strip() else selected_ticker
 
     if target_ticker:
         with st.spinner(f"מנתח לעומק את {target_ticker}..."):
@@ -347,7 +381,7 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                         f"• מחיר: {curr}{current_price:.2f}\n"
                         f"• המלצה: *{rec_text}*\n"
                         f"• הסתברות AI: {avg_prob:.1f}%\n"
-                        f"• ADX: {adx_val:.1f} | CMF: {latest_cmf:+.2f}\n"
+                        f"• RSI: {latest_rsi:.1f} | CMF: {latest_cmf:+.2f}\n"
                         f"• Stop Loss: {curr}{stop_loss:.2f}\n"
                         f"• Target: {curr}{take_profit:.2f}"
                     )
@@ -419,40 +453,45 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                     fig_bt.update_layout(title="השוואת תשואה מצטברת ב-2 השנים האחרונות (%)", template="plotly_white", height=400)
                     st.plotly_chart(fig_bt, use_container_width=True)
 
+                # --- הגרף המשולב מגרסאות קודמות (4 קומות) ---
                 st.markdown("---")
-                st.markdown("### 📊 ניתוח ויזואלי מתקדם (ממוצעים, CMF, ADX)")
+                st.markdown("### 📊 ניתוח ויזואלי מתקדם (מחיר, RSI, נפח מסחר, מגמה)")
                 
-                fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06, 
-                                    row_heights=[0.5, 0.25, 0.25],
-                                    subplot_titles=("מחיר, ממוצעים נעים וקווי Stop/Profit", "זרימת כסף (CMF)", "עוצמת מגמה (ADX)"))
+                # יצירת צבעים לנפח מסחר (ירוק לעליות, אדום לירידות)
+                vol_colors = ['green' if row['Close'] >= row['Open'] else 'red' for index, row in df.iterrows()]
                 
-                fig.add_trace(go.Candlestick(
-                    x=df['Date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
-                    name='נרות יפניים'
-                ), row=1, col=1)
+                fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.04, 
+                                    row_heights=[0.4, 0.2, 0.2, 0.2],
+                                    subplot_titles=("מחיר, ממוצעים וקווי הגנה", "מדד מומנטום (RSI)", "זרימת כסף (Volume & SMAs)", "עוצמת מגמה (ADX) ו-CMF"))
                 
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], mode='lines', name='ממוצע 20', line=dict(color='orange', width=1.5)), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_50'], mode='lines', name='ממוצע 50', line=dict(color='purple', width=1.5)), row=1, col=1)
-
+                # קומה 1: מחיר וממוצעים
+                fig.add_trace(go.Candlestick(x=df['Date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='נרות'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], mode='lines', name='SMA 20', line=dict(color='orange', width=1.5)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_50'], mode='lines', name='SMA 50', line=dict(color='blue', width=1.5)), row=1, col=1)
                 fig.add_hline(y=stop_loss, line_dash="dot", line_color="red", annotation_text="Stop Loss", row=1, col=1)
                 fig.add_hline(y=take_profit, line_dash="dot", line_color="green", annotation_text="Take Profit", row=1, col=1)
 
-                colors = ['green' if val >= 0 else 'red' for val in df['CMF']]
-                fig.add_trace(go.Bar(x=df['Date'], y=df['CMF'], name='זרימת כסף (CMF)', marker_color=colors), row=2, col=1)
+                # קומה 2: מדד RSI שביקשת
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], line=dict(color='purple', width=1.5), name='RSI'), row=2, col=1)
+                fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
+                fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
                 
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['ADX'], mode='lines', name='ADX', line=dict(color='blue', width=2)), row=3, col=1)
-                fig.add_hline(y=25, line_dash="dash", line_color="gray", annotation_text="סף מגמה חזקה", row=3, col=1)
+                # קומה 3: נפח מסחר מעוצב כמו בגרסה הקודמת
+                fig.add_trace(go.Bar(x=df['Date'], y=df['Volume'], marker_color=vol_colors, name='Volume'), row=3, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['Vol_SMA_20'], mode='lines', name='Vol SMA 20', line=dict(color='orange', width=1)), row=3, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['Vol_SMA_50'], mode='lines', name='Vol SMA 50', line=dict(color='blue', width=1)), row=3, col=1)
+
+                # קומה 4: CMF ו-ADX
+                cmf_colors = ['green' if val >= 0 else 'red' for val in df['CMF']]
+                fig.add_trace(go.Bar(x=df['Date'], y=df['CMF'], name='CMF', marker_color=cmf_colors), row=4, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['ADX'], mode='lines', name='ADX', line=dict(color='black', width=2)), row=4, col=1)
+                fig.add_hline(y=25, line_dash="dash", row=4, col=1, line_color="gray", annotation_text="סף מגמה")
                 
-                fig.update_layout(
-                    xaxis3_title="תאריך",
-                    template="plotly_white",
-                    height=700,
-                    xaxis_rangeslider_visible=False
-                )
+                fig.update_layout(xaxis4_title="תאריך", template="plotly_white", height=900, xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.title("📋 רשימת מעקב וסריקת מניות מרוכזת")
+    st.title("📋 סורק אוטומטי לטלגרם - רשימת מעקב")
     st.markdown("סריקה בלייב של כל המניות ברשימה האישית שלך עם המלצות AI ומדדי מפתח.")
     
     if not st.session_state.watchlist:
@@ -475,9 +514,9 @@ else:
                     if avg_p >= 54 and adx_v > 20:
                         rec = "🟢 קנייה חזקה"
                     elif avg_p >= 48:
-                        rec = "🟡 המתנה (HOLD)"
+                        rec = "🟡 המתנה"
                     else:
-                        rec = "🔴 מכירה / סיכון"
+                        rec = "🔴 מכירה"
                         
                     trend_status = "🔥 חזקה" if adx_v > 25 else "💤 דשדוש"
                     money_status = "🟢 כניסה" if cmf_v > 0.05 else ("🔴 יציאה" if cmf_v < -0.05 else "🟡 ניטרלי")

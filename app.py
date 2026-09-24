@@ -15,7 +15,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="AI Stock Analytics Pro - Master Edition", page_icon="📈", layout="wide")
 
-# --- מאגר קטגוריות מותאם אישית (הסקטורים החדשים) ---
+# --- מאגר קטגוריות מותאם אישית ---
 THEMATIC_TICKERS = {
     "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
     "קריפטו": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
@@ -45,7 +45,6 @@ def get_stock_universe():
         response = requests.get(url, headers=headers, timeout=5)
         table = pd.read_html(response.text)[0]
         us_stocks = table['Symbol'].tolist()
-        # מחזיר את המאגר המלא כדי לתמוך בחיפוש חופשי, ואת מאגרי הבסיס
         return sorted(list(set(us_stocks + israeli_stocks + etfs))), us_stocks, israeli_stocks
     except:
         fallback = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL']
@@ -150,7 +149,6 @@ def fetch_live_data(raw_ticker):
             'Date': pd.to_datetime(sp_timestamps, unit='s'),
             'SP500_Close': sp_closes
         }).dropna()
-        # השלמת חסרים במקרה של נכסים כמו קריפטו שנסחרים גם בסופ"ש
         df = pd.merge(df, df_sp, on='Date', how='left').ffill()
     else:
         df['SP500_Close'] = df['Close']
@@ -261,22 +259,19 @@ def process_features_and_model(df):
     return df, prob_short, prob_long, avg_prob, acc_short, acc_long
 
 all_tickers, us_stocks, israeli_stocks = get_stock_universe()
-default_index = all_tickers.index('SPY') if 'SPY' in all_tickers else 0
 
 st.sidebar.title("🎮 מצבי עבודה")
 app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק"])
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ ניהול רשימת מעקב")
-new_ticker_sel = st.sidebar.selectbox("בחר מניה להוספה:", all_tickers)
-new_ticker_man = st.sidebar.text_input("או הקלד ידנית:")
+new_ticker_man = st.sidebar.text_input("הקלד סימול מניה להוספה (למשל AAPL):").strip().upper()
 
 if st.sidebar.button("➕ הוסף לרשימה"):
-    ticker_to_add = new_ticker_man.strip().upper() if new_ticker_man.strip() else new_ticker_sel
-    if ticker_to_add and ticker_to_add not in st.session_state.watchlist:
-        st.session_state.watchlist.append(ticker_to_add)
+    if new_ticker_man and new_ticker_man not in st.session_state.watchlist:
+        st.session_state.watchlist.append(new_ticker_man)
         save_watchlist(st.session_state.watchlist)
-        st.sidebar.success(f"התווספה ונשמרה: {ticker_to_add}")
+        st.sidebar.success(f"התווספה ונשמרה: {new_ticker_man}")
         st.rerun()
 
 remove_ticker = st.sidebar.selectbox("הסר מניה מהרשימה:", ["-- בחר --"] + st.session_state.watchlist)
@@ -294,9 +289,7 @@ tg_chat_id = st.sidebar.text_input("Telegram Chat ID:", value="5117812191")
 # --- 1. מצב ניתוח מניה בודדת ---
 if app_mode == "🔍 ניתוח מניה בודדת":
     st.title("🔍 ניתוח מעמיק, התראות בלייב וסימולציה היסטורית")
-    selected_ticker = st.selectbox("בחר מהמאגר:", all_tickers, index=default_index)
-    manual_ticker = st.text_input("או חופשי (למשל TSLA, BTC-USD):")
-    target_ticker = manual_ticker.strip().upper() if manual_ticker.strip() else selected_ticker
+    target_ticker = st.text_input("הקלד סימול מניה (למשל TSLA, BTC-USD, ICL.TA):", value="SPY").strip().upper()
 
     if target_ticker:
         with st.spinner(f"מנתח לעומק את {target_ticker}..."):
@@ -380,15 +373,12 @@ else:
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Market Screener)")
     st.markdown("סריקת רוחב מתקדמת לפי קטגוריות. המערכת מחפשת: מגמה חזקה (ADX>25), כניסת כסף (CMF>0), והסתברות AI מעל 54%.")
     
-    # בניית רשימת האפשרויות לתפריט (הכל + הקטגוריות)
     options = ["הכל (סריקה מלאה של כל המאגר!)"] + list(THEMATIC_TICKERS.keys())
     scan_group = st.selectbox("בחר קטגוריה לסריקה:", options)
     
     if st.button("🔎 התחל בסריקת השוק"):
-        # קביעת רשימת המניות לסריקה בהתאם לבחירה
         if scan_group == "הכל (סריקה מלאה של כל המאגר!)":
             all_thematic_tickers = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-            # מאחדים הכל לרשימה אחת ענקית ללא כפילויות (מעל 500 נכסים)
             target_list = list(set(us_stocks + israeli_stocks + all_thematic_tickers))
         else:
             target_list = THEMATIC_TICKERS[scan_group]
@@ -402,7 +392,6 @@ else:
         for idx, ticker in enumerate(target_list):
             status_text.text(f"מנתח את {ticker} ({idx+1}/{len(target_list)})...")
             
-            # השהיה למניעת חסימות מצד שרתי Yahoo
             time.sleep(0.25)
             
             df, curr, actual_ticker = fetch_live_data(ticker)
@@ -412,7 +401,6 @@ else:
                     df, p_short, p_long, avg_p, acc_s, acc_l = processed
                     adx_v, cmf_v = df['ADX'].iloc[-1], df['CMF'].iloc[-1]
                     
-                    # הפילטר הקפדני של ה-AI
                     if avg_p >= 54 and adx_v >= 25 and cmf_v > 0:
                         price = df['Close'].iloc[-1]
                         rsi_v = df['RSI'].iloc[-1]

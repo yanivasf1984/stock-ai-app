@@ -325,20 +325,20 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                                     subplot_titles=("מחיר וממוצעים", "RSI", "נפח מסחר", "ADX & CMF"))
                 
                 fig.add_trace(go.Candlestick(x=df['Date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='נרות'), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], line=dict(color='orange', width=1.5)), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_50'], line=dict(color='blue', width=1.5)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], line=dict(color='orange', width=1.5), name='SMA 20'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_50'], line=dict(color='blue', width=1.5), name='SMA 50'), row=1, col=1)
                 
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], line=dict(color='purple', width=1.5)), row=2, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], line=dict(color='purple', width=1.5), name='RSI'), row=2, col=1)
                 fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
                 fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
                 
-                fig.add_trace(go.Bar(x=df['Date'], y=df['Volume'], marker_color=vol_colors), row=3, col=1)
+                fig.add_trace(go.Bar(x=df['Date'], y=df['Volume'], marker_color=vol_colors, name='Volume'), row=3, col=1)
                 
                 cmf_colors = ['green' if val >= 0 else 'red' for val in df['CMF']]
-                fig.add_trace(go.Bar(x=df['Date'], y=df['CMF'], marker_color=cmf_colors), row=4, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['ADX'], line=dict(color='black', width=2)), row=4, col=1)
+                fig.add_trace(go.Bar(x=df['Date'], y=df['CMF'], marker_color=cmf_colors, name='CMF'), row=4, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['ADX'], line=dict(color='black', width=2), name='ADX'), row=4, col=1)
                 
-                fig.update_layout(height=800, xaxis_rangeslider_visible=False, showlegend=False)
+                fig.update_layout(height=800, xaxis_rangeslider_visible=False, showlegend=True)
                 st.plotly_chart(fig, use_container_width=True)
 
 # --- 2. מצב רשימת מעקב ---

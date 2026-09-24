@@ -9,32 +9,50 @@ import streamlit as st
 from sklearn.ensemble import HistGradientBoostingClassifier
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import time
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="AI Stock Analytics Pro - Master Edition", page_icon="📈", layout="wide")
 
+# --- מאגר קטגוריות מותאם אישית (הסקטורים החדשים) ---
+THEMATIC_TICKERS = {
+    "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
+    "קריפטו": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
+    "ביטקויין": ['BTC-USD', 'IBIT', 'FBTC', 'ARKB', 'BITB', 'BITO'],
+    "בינה מלאכותית": ['NVDA', 'AMD', 'SMCI', 'PLTR', 'MSFT', 'GOOGL', 'META', 'TSM', 'ASML', 'CRWD', 'PANW'],
+    "מחשב קוונטי": ['IONQ', 'QBTS', 'RGTI', 'IBM', 'HON', 'GOOGL'],
+    "גיימינג": ['EA', 'TTWO', 'RBLX', 'NTES', 'SONY', 'MSFT', 'TCEHY'],
+    "זהב": ['GLD', 'IAU', 'GDX', 'NEM', 'GOLD', 'AEM', 'FNV'],
+    "אנרגיה ותשתיות": ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PXD', 'VLO', 'NEP', 'BIP'],
+    "קרנות ישראליות": ['EIS', 'IZRL', 'ISRA', 'ITEQ', 'TA35.TA', 'TA125.TA', 'LEUMI.TA', 'POALIM.TA', 'NICE.TA'],
+    "בריאות": ['LLY', 'UNH', 'JNJ', 'MRK', 'ABBV', 'TMO', 'PFE', 'DHR', 'AMGN', 'ISRG'],
+    "פיננסים": ['BRK-B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'MS', 'GS', 'BLK', 'C'],
+    "תקשורת": ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'CHTR', 'TMUS'],
+    "תעשייה": ['CAT', 'GE', 'UNP', 'HON', 'BA', 'UPS', 'RTX', 'LMT', 'DE', 'ADP'],
+    "תחום הצריכה": ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'WMT', 'PG', 'KO', 'PEP', 'COST'],
+    "שירותים": ['NEE', 'DUK', 'SO', 'SRE', 'AEP', 'D', 'EXC', 'XEL'],
+    "נדל\"ן": ['PLD', 'AMT', 'EQIX', 'CCI', 'PSA', 'O', 'SPG', 'WELL']
+}
+
 @st.cache_data
 def get_stock_universe():
-    israeli_stocks = [
-        'LEUMI.TA', 'POALIM.TA', 'DISC.TA', 'MZRN.TA', 'FIBI.TA', 
-        'NICE.TA', 'ESLT.TA', 'ICL.TA', 'TSEM.TA', 'BEZQ.TA', 'ENOG.TA', 
-        'ALHE.TA', 'PHOE1.TA', 'HARL.TA', 'DEDN.TA', 'SPEN.TA', 'NVMI.TA'
-    ]
-    etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT', 'GLD']
+    israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
+    etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     try:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         response = requests.get(url, headers=headers, timeout=5)
         table = pd.read_html(response.text)[0]
         us_stocks = table['Symbol'].tolist()
+        # מחזיר את המאגר המלא כדי לתמוך בחיפוש חופשי, ואת מאגרי הבסיס
         return sorted(list(set(us_stocks + israeli_stocks + etfs))), us_stocks, israeli_stocks
     except:
         fallback = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL']
         return sorted(list(set(fallback + israeli_stocks + etfs))), fallback, israeli_stocks
 
 WATCHLIST_FILE = "watchlist.json"
-DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'NVDA', 'LEUMI.TA', 'TSLA']
+DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'BTC-USD', 'NVDA', 'LEUMI.TA', 'TSLA']
 
 def load_watchlist():
     if os.path.exists(WATCHLIST_FILE):
@@ -132,6 +150,7 @@ def fetch_live_data(raw_ticker):
             'Date': pd.to_datetime(sp_timestamps, unit='s'),
             'SP500_Close': sp_closes
         }).dropna()
+        # השלמת חסרים במקרה של נכסים כמו קריפטו שנסחרים גם בסופ"ש
         df = pd.merge(df, df_sp, on='Date', how='left').ffill()
     else:
         df['SP500_Close'] = df['Close']
@@ -276,7 +295,7 @@ tg_chat_id = st.sidebar.text_input("Telegram Chat ID:", value="5117812191")
 if app_mode == "🔍 ניתוח מניה בודדת":
     st.title("🔍 ניתוח מעמיק, התראות בלייב וסימולציה היסטורית")
     selected_ticker = st.selectbox("בחר מהמאגר:", all_tickers, index=default_index)
-    manual_ticker = st.text_input("או חופשי (למשל TSLA):")
+    manual_ticker = st.text_input("או חופשי (למשל TSLA, BTC-USD):")
     target_ticker = manual_ticker.strip().upper() if manual_ticker.strip() else selected_ticker
 
     if target_ticker:
@@ -356,17 +375,25 @@ elif app_mode == "📋 סורק רשימת מעקב":
                 success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
                 st.success(res_msg) if success else st.error(res_msg)
 
-# --- 3. צייד הזדמנויות שוק (הסורק החדש) ---
+# --- 3. צייד הזדמנויות שוק (הסורק המורחב) ---
 else:
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Market Screener)")
-    st.markdown("סריקת רוחב לאיתור מניות העומדות בקריטריונים מחמירים: מגמה חזקה (ADX>25), כניסת כסף (CMF>0), והסתברות AI מעל 54%.")
+    st.markdown("סריקת רוחב מתקדמת לפי קטגוריות. המערכת מחפשת: מגמה חזקה (ADX>25), כניסת כסף (CMF>0), והסתברות AI מעל 54%.")
     
-    scan_group = st.selectbox("בחר שוק לסריקה:", ["מניות ישראל (.TA)", "תעודות סל ומניות טכנולוגיה", "מדד S&P 500 המלא (יקח מספר דקות)"])
+    # בניית רשימת האפשרויות לתפריט (הכל + הקטגוריות)
+    options = ["הכל (סריקה מלאה של כל המאגר!)"] + list(THEMATIC_TICKERS.keys())
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", options)
     
     if st.button("🔎 התחל בסריקת השוק"):
-        if scan_group == "מניות ישראל (.TA)": target_list = israeli_stocks
-        elif scan_group == "תעודות סל ומניות טכנולוגיה": target_list = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL']
-        else: target_list = us_stocks[:100]
+        # קביעת רשימת המניות לסריקה בהתאם לבחירה
+        if scan_group == "הכל (סריקה מלאה של כל המאגר!)":
+            all_thematic_tickers = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
+            # מאחדים הכל לרשימה אחת ענקית ללא כפילויות (מעל 500 נכסים)
+            target_list = list(set(us_stocks + israeli_stocks + all_thematic_tickers))
+        else:
+            target_list = THEMATIC_TICKERS[scan_group]
+        
+        st.info(f"מתחיל סריקה של {len(target_list)} נכסים בחיפוש אחר הזדמנויות קנייה מובהקות. נא להמתין...")
         
         opportunities = []
         progress_bar = st.progress(0)
@@ -374,6 +401,10 @@ else:
         
         for idx, ticker in enumerate(target_list):
             status_text.text(f"מנתח את {ticker} ({idx+1}/{len(target_list)})...")
+            
+            # השהיה למניעת חסימות מצד שרתי Yahoo
+            time.sleep(0.25)
+            
             df, curr, actual_ticker = fetch_live_data(ticker)
             if df is not None:
                 processed = process_features_and_model(df)
@@ -381,6 +412,7 @@ else:
                     df, p_short, p_long, avg_p, acc_s, acc_l = processed
                     adx_v, cmf_v = df['ADX'].iloc[-1], df['CMF'].iloc[-1]
                     
+                    # הפילטר הקפדני של ה-AI
                     if avg_p >= 54 and adx_v >= 25 and cmf_v > 0:
                         price = df['Close'].iloc[-1]
                         rsi_v = df['RSI'].iloc[-1]
@@ -409,4 +441,4 @@ else:
                 success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
                 st.success(res_msg) if success else st.error(res_msg)
         else:
-            st.info("לא נמצאו מניות שעומדות בכל הקריטריונים המחמירים כרגע. השוק לא מספק הזדמנויות בטוחות היום.")
+            st.info(f"הסריקה הסתיימה. לא נמצאו נכסים ב-{scan_group} שעומדים בכל הקריטריונים המחמירים כרגע.")

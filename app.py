@@ -14,7 +14,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="AI Stock Analytics Pro - Master Edition", page_icon="📈", layout="wide")
 
-# --- משיכת מאגר המניות (ארה"ב + ישראל) מהגרסה הקודמת ---
 @st.cache_data
 def get_stock_universe():
     israeli_stocks = [
@@ -29,12 +28,11 @@ def get_stock_universe():
         response = requests.get(url, headers=headers, timeout=5)
         table = pd.read_html(response.text)[0]
         us_stocks = table['Symbol'].tolist()
-        return sorted(list(set(us_stocks + israeli_stocks + etfs)))
+        return sorted(list(set(us_stocks + israeli_stocks + etfs))), us_stocks, israeli_stocks
     except:
         fallback = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL']
-        return sorted(list(set(fallback + israeli_stocks + etfs)))
+        return sorted(list(set(fallback + israeli_stocks + etfs))), fallback, israeli_stocks
 
-# --- ניהול שמירה אוטומטית של רשימת מעקב ---
 WATCHLIST_FILE = "watchlist.json"
 DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'NVDA', 'LEUMI.TA', 'TSLA']
 
@@ -59,7 +57,6 @@ def save_watchlist(watchlist):
 if 'watchlist' not in st.session_state:
     st.session_state.watchlist = load_watchlist()
 
-# --- מנגנון התראות לטלגרם ---
 def send_telegram_msg(bot_token, chat_id, text):
     if not bot_token or not chat_id:
         return False, "נא להגדיר Token ו-Chat ID בסרגל הצד."
@@ -159,8 +156,8 @@ def process_features_and_model(df):
     
     df['SMA_20'] = df['Close'].rolling(20).mean()
     df['SMA_50'] = df['Close'].rolling(50).mean()
-    df['Vol_SMA_20'] = df['Volume'].rolling(20).mean() # תוספת נפח מסחר
-    df['Vol_SMA_50'] = df['Volume'].rolling(50).mean() # תוספת נפח מסחר
+    df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
+    df['Vol_SMA_50'] = df['Volume'].rolling(50).mean()
     
     df['SMA_20_Ratio'] = df['Close'] / df['SMA_20']
     df['SMA_Trend'] = df['SMA_20'] / df['SMA_50']
@@ -205,18 +202,15 @@ def process_features_and_model(df):
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     df['RSI'] = 100 - (100 / (1 + (gain / (loss + 1e-8))))
     
-    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = (exp1 - exp2) / df['Close']
-    df['Vol_Ratio'] = df['Volume'] / df['Volume'].rolling(20).mean()
-    df['ATR_Ratio'] = atr14 / df['Close']
-
     df['Target_Short'] = ((df['Close'].shift(-1) - df['Close']) / df['Close'] > 0.003).astype(int)
     df['Target_Long'] = ((df['Close'].shift(-20) - df['Close']) / df['Close'] > 0.015).astype(int)
     
     features = ['Return', 'SP500_Return', 'Lag_1', 'Lag_2', 'SMA_20_Ratio', 'SMA_Trend', 
-                'CMF', 'MFI', 'BB_Pos', 'RSI', 'MACD', 'Vol_Ratio', 'ATR_Ratio', 'ADX', 'OBV_Trend']
+                'CMF', 'MFI', 'BB_Pos', 'RSI', 'Vol_Ratio', 'ATR_Ratio', 'ADX', 'OBV_Trend']
     
+    df['Vol_Ratio'] = df['Volume'] / df['Volume'].rolling(20).mean()
+    df['ATR_Ratio'] = atr14 / df['Close']
+
     df_short = df.dropna(subset=features + ['Target_Short'])
     df_long = df.dropna(subset=features + ['Target_Long'])
     
@@ -247,38 +241,16 @@ def process_features_and_model(df):
     
     return df, prob_short, prob_long, avg_prob, acc_short, acc_long
 
-def run_backtest(df):
-    df_bt = df.copy()
-    df_bt['Signal'] = np.where(
-        (df_bt['SMA_20'] > df_bt['SMA_50']) & (df_bt['CMF'] > 0) & (df_bt['ADX'] > 20), 1, 0
-    )
-    df_bt['Strategy_Return'] = df_bt['Signal'].shift(1) * df_bt['Return']
-    
-    cum_strategy = (1 + df_bt['Strategy_Return'].fillna(0)).cumprod() - 1
-    cum_benchmark = (1 + df_bt['Return'].fillna(0)).cumprod() - 1
-    
-    df_bt['Cum_Strategy'] = cum_strategy * 100
-    df_bt['Cum_Benchmark'] = cum_benchmark * 100
-    
-    total_strat = cum_strategy.iloc[-1] * 100
-    total_bench = cum_benchmark.iloc[-1] * 100
-    
-    active_days = df_bt[df_bt['Strategy_Return'] != 0]
-    win_rate = (len(active_days[active_days['Strategy_Return'] > 0]) / len(active_days)) * 100 if len(active_days) > 0 else 0
-    
-    return df_bt, total_strat, total_bench, win_rate
-
-# משיכת המאגר לפאנל הצידי
-all_tickers = get_stock_universe()
+all_tickers, us_stocks, israeli_stocks = get_stock_universe()
 default_index = all_tickers.index('SPY') if 'SPY' in all_tickers else 0
 
 st.sidebar.title("🎮 מצבי עבודה")
-app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק אוטומטי לטלגרם"])
+app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק"])
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ ניהול רשימת מעקב")
 new_ticker_sel = st.sidebar.selectbox("בחר מניה להוספה:", all_tickers)
-new_ticker_man = st.sidebar.text_input("או הקלד ידנית (למשל ICL.TA):")
+new_ticker_man = st.sidebar.text_input("או הקלד ידנית:")
 
 if st.sidebar.button("➕ הוסף לרשימה"):
     ticker_to_add = new_ticker_man.strip().upper() if new_ticker_man.strip() else new_ticker_sel
@@ -297,17 +269,14 @@ if st.sidebar.button("🗑️ הסר מהרשימה") and remove_ticker != "-- �
 
 st.sidebar.markdown("---")
 st.sidebar.header("📱 הגדרות בוט טלגרם")
-# הוטמעו הפרטים שלך באופן אוטומטי מהגרסה הקודמת
 tg_token = st.sidebar.text_input("Telegram Bot Token:", value="8979601396:AAFQjLLDf81HJPh8RjkpcpzQYxYAAHd8jpw", type="password")
 tg_chat_id = st.sidebar.text_input("Telegram Chat ID:", value="5117812191")
 
+# --- 1. מצב ניתוח מניה בודדת ---
 if app_mode == "🔍 ניתוח מניה בודדת":
     st.title("🔍 ניתוח מעמיק, התראות בלייב וסימולציה היסטורית")
-    
-    st.sidebar.markdown("---")
-    st.sidebar.header("🔎 חיפוש מניה לניתוח")
-    selected_ticker = st.sidebar.selectbox("מהמאגר:", all_tickers, index=default_index)
-    manual_ticker = st.sidebar.text_input("או חופשי (למשל TSLA):")
+    selected_ticker = st.selectbox("בחר מהמאגר:", all_tickers, index=default_index)
+    manual_ticker = st.text_input("או חופשי (למשל TSLA):")
     target_ticker = manual_ticker.strip().upper() if manual_ticker.strip() else selected_ticker
 
     if target_ticker:
@@ -315,12 +284,10 @@ if app_mode == "🔍 ניתוח מניה בודדת":
             df, curr, actual_ticker = fetch_live_data(target_ticker)
             
         if df is None:
-            st.error(f"לא נשלפו נתונים עבור הסימול '{target_ticker}'.")
+            st.error(f"לא נשלפו נתונים עבור '{target_ticker}'.")
         else:
             processed = process_features_and_model(df)
-            if processed[0] is None:
-                st.error("אין מספיק היסטוריית מסחר רציפה לאימון מודל AI במניה זו.")
-            else:
+            if processed[0] is not None:
                 df, prob_short, prob_long, avg_prob, acc_short, acc_long = processed
                 
                 current_price = df['Close'].iloc[-1]
@@ -328,223 +295,118 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 latest_rsi = df['RSI'].iloc[-1]
                 adx_val = df['ADX'].iloc[-1]
                 latest_cmf = df['CMF'].iloc[-1]
-                obv_trend_val = df['OBV_Trend'].iloc[-1]
-                sma20 = df['SMA_20'].iloc[-1]
-                sma50 = df['SMA_50'].iloc[-1]
-                
-                stop_loss = current_price - (2 * latest_atr)
-                take_profit = current_price + (4 * latest_atr)
-                risk_per_share = current_price - stop_loss
+                sma20, sma50 = df['SMA_20'].iloc[-1], df['SMA_50'].iloc[-1]
+                stop_loss, take_profit = current_price - (2 * latest_atr), current_price + (4 * latest_atr)
 
-                st.subheader(f"דוח ניתוח מניה: {actual_ticker}")
-                
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("מחיר נוכחי", f"{curr}{current_price:.2f}")
+                col1.metric("מחיר", f"{curr}{current_price:.2f}")
+                col2.metric("הסתברות AI", f"{avg_prob:.1f}%")
+                col3.metric("ADX (מגמה)", f"{adx_val:.1f}")
+                col4.metric("CMF (מוסדיים)", f"{latest_cmf:+.2f}")
                 
-                adx_status = "מגמה חזקה 🔥" if adx_val > 25 else "דשדוש (רעש) 💤"
-                col2.metric("עוצמת מגמה (ADX)", f"{adx_val:.1f}", adx_status, delta_color="off")
-                
-                cmf_status = "כסף נכנס 🟢" if latest_cmf > 0.05 else ("כסף יוצא 🔴" if latest_cmf < -0.05 else "מאוזן 🟡")
-                col3.metric("זרימת מוסדיים (CMF)", f"{latest_cmf:+.2f}", cmf_status)
-                
-                obv_status = "איסוף סחורה 🟢" if obv_trend_val > 0.5 else ("פיזור סחורה 🔴" if obv_trend_val < -0.5 else "ניטרלי 🟡")
-                col4.metric("נפח צבור (OBV)", f"{obv_trend_val:+.2f}", obv_status)
+                if avg_prob >= 54 and adx_val > 20: st.success("🟢 **קנייה חזקה (STRONG BUY)**")
+                elif avg_prob >= 48: st.warning("🟡 **המתנה / ניטרלי (HOLD)**")
+                else: st.error("🔴 **מכירה / סיכון (SELL)**")
 
-                st.markdown("---")
-                st.markdown("### 🔔 התראות מערכת אוטומטיות (Real-Time Alerts)")
-                
-                alerts = []
-                if adx_val > 25 and latest_cmf > 0.05 and current_price > sma20:
-                    alerts.append(("success", "🚀 **איתות מומנטום חיובי:** כסף מוסדי נכנס בעוצמה במגמה עולה ברורה."))
-                if latest_rsi > 70:
-                    alerts.append(("warning", "⚠️ **אזהרת קניית-יתר (RSI > 70):** המניה מתוחה מדי, סיכון גבוה לתיקון טכני בקרוב."))
-                elif latest_rsi < 30:
-                    alerts.append(("info", "💡 **אזהרת מכירת-יתר (RSI < 30):** המנייה במחיר מוזל קיצונית, אפשרות לזינוק חזרה."))
-                if current_price < sma50:
-                    alerts.append(("error", "🚨 **אזהרת מגמה ראשית:** המחיר נסחר מתחת לממוצע 50 (שליטת מוכרים)."))
-                if latest_cmf < -0.05 and current_price > sma20:
-                    alerts.append(("warning", "⚡ **איתות סטייה (Divergence):** המחיר עולה אך כסף מוסדי בורח החוצה - זהירות ממלכודת!"))
-
-                if not alerts:
-                    st.info("ℹ️ אין התראות חריגות כרגע. המניה נסחרת בתנאי שוק רגילים.")
-                else:
-                    for alert_type, msg in alerts:
-                        if alert_type == "success": st.success(msg)
-                        elif alert_type == "warning": st.warning(msg)
-                        elif alert_type == "error": st.error(msg)
-                        elif alert_type == "info": st.info(msg)
-
-                if st.button("📲 שלח דוח ניתוח זה לטלגרם"):
-                    rec_text = "BUY" if (avg_prob >= 54 and adx_val > 20) else ("HOLD" if avg_prob >= 48 else "SELL")
-                    msg_body = (
-                        f"📊 *דוח AI מעודכן עבור {actual_ticker}*\n"
-                        f"• מחיר: {curr}{current_price:.2f}\n"
-                        f"• המלצה: *{rec_text}*\n"
-                        f"• הסתברות AI: {avg_prob:.1f}%\n"
-                        f"• RSI: {latest_rsi:.1f} | CMF: {latest_cmf:+.2f}\n"
-                        f"• Stop Loss: {curr}{stop_loss:.2f}\n"
-                        f"• Target: {curr}{take_profit:.2f}"
-                    )
-                    success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg_body)
-                    if success: st.success(res_msg)
-                    else: st.error(res_msg)
-
-                st.markdown("---")
-
-                col_left, col_right = st.columns(2)
-                
-                with col_left:
-                    st.markdown("### 🤖 הסתברויות עתידיות (Machine Learning)")
-                    st.write(f"**טווח קצר (1-5 ימים):** {prob_short:.1f}% הסתברות לעלייה *(דיוק: {acc_short:.1f}%)*")
-                    st.progress(int(np.clip(prob_short, 0, 100)))
-                    
-                    st.write(f"**טווח רחוק (חודש קדימה):** {prob_long:.1f}% הסתברות לעלייה *(דיוק: {acc_long:.1f}%)*")
-                    st.progress(int(np.clip(prob_long, 0, 100)))
-
-                with col_right:
-                    st.markdown("### 🎯 המלצת מודל סופית")
-                    if avg_prob >= 54 and adx_val > 20:
-                        st.success("🟢 **קנייה חזקה (STRONG BUY)**")
-                        st.write(f"מומנטום כיווני חזק בשילוב {cmf_status}.")
-                    elif avg_prob >= 48:
-                        st.warning("🟡 **המתנה / ניטרלי (HOLD)**")
-                        st.write("אינדיקטורים מאוזנים או חוסר מגמה (דשדוש). מומלץ להמתין.")
-                    else:
-                        st.error("🔴 **מכירה / סיכון (SELL)**")
-                        if latest_cmf > 0.05:
-                            st.write("⚠️ **אזהרת מלכודת קונים (Bull Trap):** למרות כניסת כסף זמנית, ה-AI מזהה סיכון גבוה לתיקון חריף משיא.")
-                        else:
-                            st.write("לחץ מכירות, זרימת כסף שלילית החוצה או שבירת תמיכות.")
-
-                st.markdown("---")
-                st.markdown("### 🛡️ ניהול סיכונים ותכנון עסקה (Risk Management)")
-                
-                r_col1, r_col2, r_col3 = st.columns(3)
-                r_col1.metric("🛑 קטיעת הפסד (Stop-Loss)", f"{curr}{stop_loss:.2f}", f"-{((current_price-stop_loss)/current_price)*100:.1f}%")
-                r_col2.metric("🎯 יעד רווח (Take-Profit)", f"{curr}{take_profit:.2f}", f"+{((take_profit-current_price)/current_price)*100:.1f}%")
-                r_col3.metric("⚖️ יחס סיכון / סיכוי", "1 : 2.0", "מבנה מוסדי תקין")
-
-                st.markdown("#### 📐 מחשבון כמות מניות לקנייה:")
-                c_calc1, c_calc2 = st.columns(2)
-                with c_calc1:
-                    portfolio_size = st.number_input("גודל התיק שלך ($ או ₪):", value=10000, step=1000)
-                with c_calc2:
-                    risk_pct = st.slider("אחוז סיכון מותר לעסקה זו (%):", min_value=0.5, max_value=5.0, value=2.0, step=0.5)
-
-                max_loss_allowed = portfolio_size * (risk_pct / 100)
-                shares_to_buy = int(max_loss_allowed / risk_per_share) if risk_per_share > 0 else 0
-                total_investment = shares_to_buy * current_price
-
-                st.info(f"💡 **המלצת כמות לעסקה:** לקניית **{shares_to_buy}** מניות בסכום כולל של **{curr}{total_investment:,.2f}**.\n\n"
-                        f"אם העסקה תיגע ב-Stop Loss ({curr}{stop_loss:.2f}), ההפסד המקסימלי שלך יהיה **{curr}{max_loss_allowed:,.2f}** ({risk_pct}% מהתיק).")
-
-                st.markdown("---")
-                with st.expander("🧪 **לחץ כאן לצפייה בסימולציה היסטורית (Backtesting)**", expanded=False):
-                    df_bt, total_strat, total_bench, win_rate = run_backtest(df)
-                    
-                    b_col1, b_col2, b_col3 = st.columns(3)
-                    b_col1.metric("תשואת אלגוריתם ה-AI", f"{total_strat:+.1f}%")
-                    b_col2.metric("תשואת קנה והחזק (Benchmark)", f"{total_bench:+.1f}%")
-                    b_col3.metric("אחוז עסקאות מרוויחות", f"{win_rate:.1f}%")
-                    
-                    fig_bt = go.Figure()
-                    fig_bt.add_trace(go.Scatter(x=df_bt['Date'], y=df_bt['Cum_Strategy'], mode='lines', name='אסטרטגיית AI', line=dict(color='green', width=2)))
-                    fig_bt.add_trace(go.Scatter(x=df_bt['Date'], y=df_bt['Cum_Benchmark'], mode='lines', name='קנה והחזק', line=dict(color='gray', dash='dash')))
-                    fig_bt.update_layout(title="השוואת תשואה מצטברת ב-2 השנים האחרונות (%)", template="plotly_white", height=400)
-                    st.plotly_chart(fig_bt, use_container_width=True)
-
-                # --- הגרף המשולב מגרסאות קודמות (4 קומות) ---
-                st.markdown("---")
-                st.markdown("### 📊 ניתוח ויזואלי מתקדם (מחיר, RSI, נפח מסחר, מגמה)")
-                
-                # יצירת צבעים לנפח מסחר (ירוק לעליות, אדום לירידות)
                 vol_colors = ['green' if row['Close'] >= row['Open'] else 'red' for index, row in df.iterrows()]
+                fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.4, 0.2, 0.2, 0.2],
+                                    subplot_titles=("מחיר וממוצעים", "RSI", "נפח מסחר", "ADX & CMF"))
                 
-                fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.04, 
-                                    row_heights=[0.4, 0.2, 0.2, 0.2],
-                                    subplot_titles=("מחיר, ממוצעים וקווי הגנה", "מדד מומנטום (RSI)", "זרימת כסף (Volume & SMAs)", "עוצמת מגמה (ADX) ו-CMF"))
-                
-                # קומה 1: מחיר וממוצעים
                 fig.add_trace(go.Candlestick(x=df['Date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='נרות'), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], mode='lines', name='SMA 20', line=dict(color='orange', width=1.5)), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_50'], mode='lines', name='SMA 50', line=dict(color='blue', width=1.5)), row=1, col=1)
-                fig.add_hline(y=stop_loss, line_dash="dot", line_color="red", annotation_text="Stop Loss", row=1, col=1)
-                fig.add_hline(y=take_profit, line_dash="dot", line_color="green", annotation_text="Take Profit", row=1, col=1)
-
-                # קומה 2: מדד RSI שביקשת
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], line=dict(color='purple', width=1.5), name='RSI'), row=2, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], line=dict(color='orange', width=1.5)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_50'], line=dict(color='blue', width=1.5)), row=1, col=1)
+                
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], line=dict(color='purple', width=1.5)), row=2, col=1)
                 fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
                 fig.add_hline(y=30, line_dash="dot", row=2, col=1, line_color="green")
                 
-                # קומה 3: נפח מסחר מעוצב כמו בגרסה הקודמת
-                fig.add_trace(go.Bar(x=df['Date'], y=df['Volume'], marker_color=vol_colors, name='Volume'), row=3, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['Vol_SMA_20'], mode='lines', name='Vol SMA 20', line=dict(color='orange', width=1)), row=3, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['Vol_SMA_50'], mode='lines', name='Vol SMA 50', line=dict(color='blue', width=1)), row=3, col=1)
-
-                # קומה 4: CMF ו-ADX
-                cmf_colors = ['green' if val >= 0 else 'red' for val in df['CMF']]
-                fig.add_trace(go.Bar(x=df['Date'], y=df['CMF'], name='CMF', marker_color=cmf_colors), row=4, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['ADX'], mode='lines', name='ADX', line=dict(color='black', width=2)), row=4, col=1)
-                fig.add_hline(y=25, line_dash="dash", row=4, col=1, line_color="gray", annotation_text="סף מגמה")
+                fig.add_trace(go.Bar(x=df['Date'], y=df['Volume'], marker_color=vol_colors), row=3, col=1)
                 
-                fig.update_layout(xaxis4_title="תאריך", template="plotly_white", height=900, xaxis_rangeslider_visible=False)
+                cmf_colors = ['green' if val >= 0 else 'red' for val in df['CMF']]
+                fig.add_trace(go.Bar(x=df['Date'], y=df['CMF'], marker_color=cmf_colors), row=4, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['ADX'], line=dict(color='black', width=2)), row=4, col=1)
+                
+                fig.update_layout(height=800, xaxis_rangeslider_visible=False, showlegend=False)
                 st.plotly_chart(fig, use_container_width=True)
 
-else:
-    st.title("📋 סורק אוטומטי לטלגרם - רשימת מעקב")
-    st.markdown("סריקה בלייב של כל המניות ברשימה האישית שלך עם המלצות AI ומדדי מפתח.")
-    
+# --- 2. מצב רשימת מעקב ---
+elif app_mode == "📋 סורק רשימת מעקב":
+    st.title("📋 סורק רשימת מעקב")
     if not st.session_state.watchlist:
-        st.warning("רשימת המעקב שלך ריקה. הוסף מניות בסרגל הצד.")
+        st.warning("רשימת המעקב שלך ריקה.")
     else:
         results = []
         progress_bar = st.progress(0)
-        
         for idx, ticker in enumerate(st.session_state.watchlist):
             df, curr, actual_ticker = fetch_live_data(ticker)
             if df is not None:
                 processed = process_features_and_model(df)
                 if processed[0] is not None:
                     df, p_short, p_long, avg_p, acc_s, acc_l = processed
-                    price = df['Close'].iloc[-1]
-                    adx_v = df['ADX'].iloc[-1]
-                    cmf_v = df['CMF'].iloc[-1]
-                    obv_v = df['OBV_Trend'].iloc[-1]
-                    
-                    if avg_p >= 54 and adx_v > 20:
-                        rec = "🟢 קנייה חזקה"
-                    elif avg_p >= 48:
-                        rec = "🟡 המתנה"
-                    else:
-                        rec = "🔴 מכירה"
-                        
-                    trend_status = "🔥 חזקה" if adx_v > 25 else "💤 דשדוש"
-                    money_status = "🟢 כניסה" if cmf_v > 0.05 else ("🔴 יציאה" if cmf_v < -0.05 else "🟡 ניטרלי")
-                    
-                    results.append({
-                        "סימול": actual_ticker,
-                        "מחיר נוכחי": f"{curr}{price:.2f}",
-                        "הסתברות AI (ממוצע)": f"{avg_p:.1f}%",
-                        "המלצת מודל": rec,
-                        "עוצמת מגמה (ADX)": f"{adx_v:.1f} ({trend_status})",
-                        "זרימת כספים (CMF)": money_status,
-                        "איסוף סחורה (OBV)": "🟢 כן" if obv_v > 0.5 else "🔴 לא",
-                        "דיוק היסטורי": f"{acc_s:.1f}%"
-                    })
+                    price, adx_v, cmf_v = df['Close'].iloc[-1], df['ADX'].iloc[-1], df['CMF'].iloc[-1]
+                    rec = "🟢 קנייה חזקה" if (avg_p >= 54 and adx_v > 20) else ("🟡 המתנה" if avg_p >= 48 else "🔴 מכירה")
+                    results.append({"סימול": actual_ticker, "מחיר": f"{curr}{price:.2f}", "ציון AI": f"{avg_p:.1f}%", "המלצה": rec, "ADX": f"{adx_v:.1f}", "CMF": f"{cmf_v:+.2f}"})
             progress_bar.progress((idx + 1) / len(st.session_state.watchlist))
-            
         progress_bar.empty()
         
         if results:
-            res_df = pd.DataFrame(results)
+            st.dataframe(pd.DataFrame(results), use_container_width=True)
+            if st.button("📲 שלח דוח לטלגרם"):
+                msg = "📋 *דוח רשימת מעקב:*\n\n" + "\n".join([f"• {r['סימול']}: {r['המלצה']} (AI: {r['ציון AI']})" for r in results])
+                success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
+                st.success(res_msg) if success else st.error(res_msg)
+
+# --- 3. צייד הזדמנויות שוק (הסורק החדש) ---
+else:
+    st.title("🚀 צייד הזדמנויות אלגוריתמי (Market Screener)")
+    st.markdown("סריקת רוחב לאיתור מניות העומדות בקריטריונים מחמירים: מגמה חזקה (ADX>25), כניסת כסף (CMF>0), והסתברות AI מעל 54%.")
+    
+    scan_group = st.selectbox("בחר שוק לסריקה:", ["מניות ישראל (.TA)", "תעודות סל ומניות טכנולוגיה", "מדד S&P 500 המלא (יקח מספר דקות)"])
+    
+    if st.button("🔎 התחל בסריקת השוק"):
+        if scan_group == "מניות ישראל (.TA)": target_list = israeli_stocks
+        elif scan_group == "תעודות סל ומניות טכנולוגיה": target_list = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL']
+        else: target_list = us_stocks[:100]
+        
+        opportunities = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for idx, ticker in enumerate(target_list):
+            status_text.text(f"מנתח את {ticker} ({idx+1}/{len(target_list)})...")
+            df, curr, actual_ticker = fetch_live_data(ticker)
+            if df is not None:
+                processed = process_features_and_model(df)
+                if processed[0] is not None:
+                    df, p_short, p_long, avg_p, acc_s, acc_l = processed
+                    adx_v, cmf_v = df['ADX'].iloc[-1], df['CMF'].iloc[-1]
+                    
+                    if avg_p >= 54 and adx_v >= 25 and cmf_v > 0:
+                        price = df['Close'].iloc[-1]
+                        rsi_v = df['RSI'].iloc[-1]
+                        opportunities.append({
+                            "סימול": actual_ticker,
+                            "מחיר": f"{curr}{price:.2f}",
+                            "ציון AI": f"{avg_p:.1f}%",
+                            "כוח מגמה (ADX)": f"{adx_v:.1f}",
+                            "כסף מוסדי (CMF)": f"{cmf_v:+.2f}",
+                            "RSI": f"{rsi_v:.1f}"
+                        })
+            progress_bar.progress((idx + 1) / len(target_list))
+            
+        progress_bar.empty()
+        status_text.empty()
+        
+        if opportunities:
+            st.success(f"🎉 נמצאו {len(opportunities)} הזדמנויות קנייה מובהקות!")
+            res_df = pd.DataFrame(opportunities)
             st.dataframe(res_df, use_container_width=True)
             
-            if st.button("📲 שלח את כל תוצאות הסריקה לטלגרם"):
-                summary_text = "📋 *דוח סריקת רשימת מעקב בלייב:*\n\n"
-                for row in results:
-                    summary_text += f"• *{row['סימול']}*: {row['מחיר נוכחי']} | {row['המלצת מודל']} ({row['הסתברות AI (ממוצע)']})\n"
-                success, res_msg = send_telegram_msg(tg_token, tg_chat_id, summary_text)
-                if success: st.success(res_msg)
-                else: st.error(res_msg)
+            if st.button("📲 שלח התראות קנייה לטלגרם"):
+                msg = "🚀 *צייד ההזדמנויות מצא איתותים חזקים:*\n\n"
+                for r in opportunities:
+                    msg += f"🔥 *{r['סימול']}*\nמחיר: {r['מחיר']} | AI חוזה: {r['ציון AI']}\n"
+                success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
+                st.success(res_msg) if success else st.error(res_msg)
         else:
-            st.error("לא נמצאו נתונים תקינים עבור המניות ברשימת המעקב.")
+            st.info("לא נמצאו מניות שעומדות בכל הקריטריונים המחמירים כרגע. השוק לא מספק הזדמנויות בטוחות היום.")

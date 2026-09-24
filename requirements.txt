@@ -1,10 +1,6 @@
 streamlit
 pandas
-yfinance
+numpy
 scikit-learn
-xgboost
-ta
 plotly
-schedule
-html5lib
-lxml
+requests

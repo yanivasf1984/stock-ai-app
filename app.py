@@ -47,8 +47,24 @@ def get_stock_universe():
         us_stocks = table['Symbol'].tolist()
         return sorted(list(set(us_stocks + israeli_stocks + etfs))), us_stocks, israeli_stocks
     except:
-        fallback = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL']
-        return sorted(list(set(fallback + israeli_stocks + etfs))), fallback, israeli_stocks
+        # רשימת התותחים הכבדים של וול סטריט (למקרה של חסימת שרת)
+        fallback = [
+            'AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'BRK-B', 'LLY', 'AVGO',
+            'JPM', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD', 'COST', 'MRK', 'ABBV', 'CRM',
+            'CVX', 'AMD', 'BAC', 'WMT', 'KO', 'NFLX', 'PEP', 'TMO', 'MCD', 'LIN', 'DIS', 'ADBE',
+            'ORCL', 'CSCO', 'INTC', 'QCOM', 'TXN', 'IBM', 'AMAT', 'BA', 'GE', 'CAT', 'HON', 'UPS',
+            'RTX', 'LMT', 'DE', 'UNP', 'GS', 'MS', 'BLK', 'C', 'AXP', 'SCHW', 'SYK', 'MDT', 'ISRG',
+            'AMGN', 'PFE', 'DHR', 'BMY', 'GILD', 'CVS', 'CI', 'ELV', 'NEE', 'DUK', 'SO', 'SRE',
+            'AEP', 'D', 'EXC', 'XEL', 'PLD', 'AMT', 'EQIX', 'CCI', 'PSA', 'O', 'SPG', 'WELL',
+            'NKE', 'SBUX', 'TGT', 'LOW', 'BKNG', 'MAR', 'DAL', 'UAL', 'AAL', 'LUV', 'F', 'GM',
+            'COP', 'SLB', 'EOG', 'MPC', 'PXD', 'VLO', 'OXY', 'HAL', 'BKR', 'KMI', 'WMB'
+        ]
+        
+        # איחוד של רשימת הגיבוי הענקית יחד עם כל הקטגוריות והמניות הישראליות שלנו
+        all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
+        massive_fallback = sorted(list(set(fallback + all_thematic + israeli_stocks + etfs)))
+        
+        return massive_fallback, fallback, israeli_stocks
 
 WATCHLIST_FILE = "watchlist.json"
 DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'BTC-USD', 'NVDA', 'LEUMI.TA', 'TSLA']

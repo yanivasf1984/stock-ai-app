@@ -230,9 +230,7 @@ def process_features_and_model(df):
     std_20 = df['Close'].rolling(20).std()
     df['BB_Upper'] = df['SMA_20'] + (2 * std_20)
     df['BB_Lower'] = df['SMA_20'] - (2 * std_20)
-    # מדד רוחב הרצועות (לזיהוי Squeeze)
     df['BB_Width'] = (df['BB_Upper'] - df['BB_Lower']) / df['SMA_20']
-    
     df['BB_Pos'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'] + 1e-8)
 
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
@@ -364,7 +362,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 macd_h_prev = df['MACD_Hist'].iloc[-2]
                 bb_width = df['BB_Width'].iloc[-1]
 
-                # מסדרים את התצוגה ב-6 עמודות נקיות
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 col1.metric("מחיר", f"{curr}{current_price:.2f}")
                 col2.metric("הסתברות AI", f"{avg_prob:.1f}%")
@@ -378,8 +375,7 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 else:
                     col5.metric("MACD מומנטום", "🔴 שלילי")
                     
-                # הוספת אינדיקציית קפיץ של בולינג'ר
-                if bb_width < 0.10: # אם הרצועות במרחק של פחות מ-10% זו מזו
+                if bb_width < 0.10: 
                     col6.metric("רצועות בולינג'ר", "🔥 קפיץ דרוך (Squeeze)")
                 else:
                     col6.metric("רצועות בולינג'ר", "🌊 תנועה רחבה")
@@ -396,7 +392,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.3, 0.15, 0.15, 0.2, 0.2],
                                     subplot_titles=("מחיר, ממוצעים ורצועות בולינג'ר", "RSI", "נפח מסחר", "ADX & CMF", "MACD (מומנטום פריצה)"))
                 
-                # ציור גרף המחיר והוספת רצועות הבולינג'ר
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_Upper'], line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dash'), name='BB Upper', showlegend=False), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_Lower'], line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(150, 150, 150, 0.1)', name='BB Lower', showlegend=False), row=1, col=1)
                 fig.add_trace(go.Candlestick(x=df['Date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='נרות'), row=1, col=1)
@@ -489,7 +484,6 @@ else:
                         price = df['Close'].iloc[-1]
                         rsi_v = df['RSI'].iloc[-1]
                         
-                        # דיווח האם המניה ב-Squeeze
                         bb_status = "🔥 קפיץ דרוך" if bb_width < 0.10 else "🌊 תנועה רחבה"
                         
                         opportunities.append({
@@ -514,7 +508,8 @@ else:
             if st.button("📲 שלח התראות קנייה לטלגרם"):
                 msg = "💎 *יהלומים זוהו בצייד ההזדמנויות:*\n\n"
                 for r in opportunities:
-                   bb_alert = "(בסקוויז!)" if "קפיץ" in r["מצב בולינג'ר"] else ""
+                    # התיקון שבוצע: שימוש בגרשיים כפולים מסביב לשם העמודה
+                    bb_alert = "(בסקוויז!)" if "קפיץ" in r["מצב בולינג'ר"] else ""
                     msg += f"🔥 *{r['סימול']}* {bb_alert}\nמחיר: {r['מחיר']} | AI: {r['ציון AI']} | MACD מאיץ\n"
                 success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
                 st.success(res_msg) if success else st.error(res_msg)

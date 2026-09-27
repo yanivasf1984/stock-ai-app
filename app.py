@@ -13,7 +13,7 @@ import time
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="AI Stock Analytics Pro - Diamond Edition", page_icon="💎", layout="wide")
+st.set_page_config(page_title="AI Stock Analytics Pro - Ultimate Edition", page_icon="💎", layout="wide")
 
 # --- מאגר קטגוריות מותאם אישית ---
 THEMATIC_TICKERS = {
@@ -41,7 +41,7 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
-    # מאגר הגיבוי למקרה של חוסר תקשורת (כ-500 חברות גדולות)
+    # מאגר הגיבוי
     sp500_hardcoded = [
         'MMM', 'AOS', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'AES', 'AFL', 'A', 'APD', 'ABNB', 'AKAM', 'ALB', 'ARE', 
         'ALGN', 'ALLE', 'LNT', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AMCR', 'AEE', 'AAL', 'AEP', 'AXP', 'AIG', 
@@ -82,18 +82,14 @@ def get_stock_universe():
     ]
     
     try:
-        # משיכת אלפי מניות ישירות מרשות ניירות הערך האמריקאית (SEC)
         headers = {'User-Agent': 'AIStockPro/2.0 (contact@example.com)'}
         url = 'https://www.sec.gov/files/company_tickers.json'
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
         sec_tickers = [item['ticker'] for item in data.values()]
-        
-        # איחוד כל הרשימות למאגר עצום (ללא כפילויות) - לרוב כ-11,000 נכסים!
         massive_universe = sorted(list(set(sec_tickers + all_thematic + israeli_stocks + etfs)))
         return massive_universe, sec_tickers, israeli_stocks
     except Exception:
-        # במקרה שה-SEC חסום, חוזרים לרשימת ה-500
         massive_universe = sorted(list(set(sp500_hardcoded + all_thematic + israeli_stocks + etfs)))
         return massive_universe, sp500_hardcoded, israeli_stocks
 
@@ -230,6 +226,15 @@ def process_features_and_model(df):
     mf_volume = mf_multiplier * df['Volume']
     df['CMF'] = mf_volume.rolling(20).sum() / (df['Volume'].rolling(20).sum() + 1e-8)
 
+    # --- הוספת בולינג'ר באנדס ---
+    std_20 = df['Close'].rolling(20).std()
+    df['BB_Upper'] = df['SMA_20'] + (2 * std_20)
+    df['BB_Lower'] = df['SMA_20'] - (2 * std_20)
+    # מדד רוחב הרצועות (לזיהוי Squeeze)
+    df['BB_Width'] = (df['BB_Upper'] - df['BB_Lower']) / df['SMA_20']
+    
+    df['BB_Pos'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'] + 1e-8)
+
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
     df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
@@ -256,9 +261,6 @@ def process_features_and_model(df):
     df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
     df['OBV_EMA'] = df['OBV'].ewm(span=20).mean()
     df['OBV_Trend'] = (df['OBV'] - df['OBV_EMA']) / (df['Volume'].rolling(20).mean() + 1e-8)
-
-    std_20 = df['Close'].rolling(20).std()
-    df['BB_Pos'] = (df['Close'] - (df['SMA_20'] - 2*std_20)) / (4 * std_20 + 1e-8)
     
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
     raw_money_flow = typical_price * df['Volume']
@@ -360,19 +362,27 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 latest_cmf = df['CMF'].iloc[-1]
                 macd_h = df['MACD_Hist'].iloc[-1]
                 macd_h_prev = df['MACD_Hist'].iloc[-2]
+                bb_width = df['BB_Width'].iloc[-1]
 
-                col1, col2, col3, col4, col5 = st.columns(5)
+                # מסדרים את התצוגה ב-6 עמודות נקיות
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
                 col1.metric("מחיר", f"{curr}{current_price:.2f}")
                 col2.metric("הסתברות AI", f"{avg_prob:.1f}%")
                 col3.metric("ADX (מגמה)", f"{adx_val:.1f}")
                 col4.metric("CMF (מוסדיים)", f"{latest_cmf:+.2f}")
                 
                 if macd_h > 0 and macd_h > macd_h_prev:
-                    col5.metric("MACD מומנטום", "🟢 פריצה חיובית")
+                    col5.metric("MACD מומנטום", "🟢 מאיץ")
                 elif macd_h > 0:
-                    col5.metric("MACD מומנטום", "🟡 חיובי נחלש")
+                    col5.metric("MACD מומנטום", "🟡 חיובי")
                 else:
                     col5.metric("MACD מומנטום", "🔴 שלילי")
+                    
+                # הוספת אינדיקציית קפיץ של בולינג'ר
+                if bb_width < 0.10: # אם הרצועות במרחק של פחות מ-10% זו מזו
+                    col6.metric("רצועות בולינג'ר", "🔥 קפיץ דרוך (Squeeze)")
+                else:
+                    col6.metric("רצועות בולינג'ר", "🌊 תנועה רחבה")
                 
                 if avg_prob >= 54 and adx_val > 25 and macd_h > 0 and macd_h > macd_h_prev:
                     st.success("🎯 **יהלום! איתות קנייה חזק ומומנטום שמאיץ (STRONG BUY)**")
@@ -384,11 +394,13 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 vol_colors = ['green' if row['Close'] >= row['Open'] else 'red' for index, row in df.iterrows()]
                 
                 fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.3, 0.15, 0.15, 0.2, 0.2],
-                                    subplot_titles=("מחיר וממוצעים", "RSI", "נפח מסחר", "ADX & CMF", "MACD (מומנטום פריצה)"))
+                                    subplot_titles=("מחיר, ממוצעים ורצועות בולינג'ר", "RSI", "נפח מסחר", "ADX & CMF", "MACD (מומנטום פריצה)"))
                 
+                # ציור גרף המחיר והוספת רצועות הבולינג'ר
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_Upper'], line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dash'), name='BB Upper', showlegend=False), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_Lower'], line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(150, 150, 150, 0.1)', name='BB Lower', showlegend=False), row=1, col=1)
                 fig.add_trace(go.Candlestick(x=df['Date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='נרות'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], line=dict(color='orange', width=1.5), name='SMA 20'), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_50'], line=dict(color='blue', width=1.5), name='SMA 50'), row=1, col=1)
                 
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], line=dict(color='purple', width=1.5), name='RSI'), row=2, col=1)
                 fig.add_hline(y=70, line_dash="dot", row=2, col=1, line_color="red")
@@ -471,18 +483,23 @@ else:
                     adx_v, cmf_v = df['ADX'].iloc[-1], df['CMF'].iloc[-1]
                     macd_h = df['MACD_Hist'].iloc[-1]
                     macd_h_prev = df['MACD_Hist'].iloc[-2]
+                    bb_width = df['BB_Width'].iloc[-1]
                     
                     if avg_p >= 54 and adx_v >= 25 and cmf_v > 0 and macd_h > 0 and macd_h > macd_h_prev:
                         price = df['Close'].iloc[-1]
                         rsi_v = df['RSI'].iloc[-1]
+                        
+                        # דיווח האם המניה ב-Squeeze
+                        bb_status = "🔥 קפיץ דרוך" if bb_width < 0.10 else "🌊 תנועה רחבה"
+                        
                         opportunities.append({
                             "סימול": actual_ticker,
                             "מחיר": f"{curr}{price:.2f}",
                             "ציון AI": f"{avg_p:.1f}%",
                             "כוח (ADX)": f"{adx_v:.1f}",
                             "כסף מוסדי (CMF)": f"{cmf_v:+.2f}",
+                            "מצב בולינג'ר": bb_status,
                             "מומנטום MACD": "מאיץ חיובי 🚀",
-                            "RSI": f"{rsi_v:.1f}"
                         })
             progress_bar.progress((idx + 1) / len(target_list))
             
@@ -497,7 +514,8 @@ else:
             if st.button("📲 שלח התראות קנייה לטלגרם"):
                 msg = "💎 *יהלומים זוהו בצייד ההזדמנויות:*\n\n"
                 for r in opportunities:
-                    msg += f"🔥 *{r['סימול']}*\nמחיר: {r['מחיר']} | AI: {r['ציון AI']} | MACD מאיץ\n"
+                    bb_alert = "(בסקוויז!)" if "קפיץ" in r['מצב בולינג'ר'] else ""
+                    msg += f"🔥 *{r['סימול']}* {bb_alert}\nמחיר: {r['מחיר']} | AI: {r['ציון AI']} | MACD מאיץ\n"
                 success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
                 st.success(res_msg) if success else st.error(res_msg)
         else:

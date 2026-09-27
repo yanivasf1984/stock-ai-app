@@ -39,69 +39,9 @@ THEMATIC_TICKERS = {
 def get_stock_universe():
     israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
+    all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
-    sp500_hardcoded = [
-        'MMM', 'AOS', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'AES', 'AFL', 'A', 'APD', 'ABNB', 'AKAM', 'ALB', 'ARE', 
-        'ALGN', 'ALLE', 'LNT', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AMCR', 'AEE', 'AAL', 'AEP', 'AXP', 'AIG', 
-        'AMT', 'AWK', 'AMP', 'AME', 'AMGN', 'APH', 'ADI', 'ANSS', 'AON', 'APA', 'AAP', 'AMAT', 'APTV', 'ACGL', 
-        'ADM', 'ANET', 'AJG', 'AIZ', 'T', 'ATO', 'ADSK', 'ADP', 'AZO', 'AVB', 'AVY', 'AXON', 'BKR', 'BALL', 
-        'BAC', 'BK', 'BBWI', 'BAX', 'BDX', 'BRK-B', 'BBY', 'BIO', 'TECH', 'BIIB', 'BLK', 'BX', 'BA', 'BKNG', 
-        'BWA', 'BXP', 'BSX', 'BMY', 'AVGO', 'BR', 'BRO', 'BF-B', 'BG', 'CHRW', 'CDNS', 'CZR', 'CPT', 'CPB', 
-        'COF', 'CAH', 'KMX', 'CCL', 'CARR', 'CTLT', 'CAT', 'CBOE', 'CBRE', 'CDW', 'CE', 'COR', 'CNC', 'CNP', 
-        'CDAY', 'CF', 'CRL', 'SCHW', 'CHTR', 'CVX', 'CMG', 'CB', 'CHD', 'CI', 'CINF', 'CTASגישה של צלף. עדיף לקבל 2-3 התראות מדויקות בשבוע של מניות שעומדות להתפוצץ, מאשר רשימה של 20 מניות בינוניות שיבזבזו לך את הזמן והכסף. 
-
-כדי להפוך את הסורק ל"מסננת אכזרית" לטווח הקצר, הוספתי למנוע את ה-**MACD**. מעכשיו, כדי שמניה בכלל תופיע אצלך בדוח, היא חייבת לעבור מסלול מכשולים משולש:
-1. **כיוון וחוזק:** מומנטום חזק מאוד (ADX מעל 25).
-2. **דלק:** כסף מוסדי אמיתי שזורם פנימה בדיוק עכשיו (CMF חיובי).
-3. **תזמון כניסה מדויק (השדרוג החדש):** ה-MACD חייב להיות חיובי, וההיסטוגרמה שלו חייבת להיות **במגמת עלייה ביחס לאתמול**. זה אומר שאנחנו תופסים את המומנטום בזמן שהוא מאיץ, ולא כשהוא מתחיל להתעייף.
-4. **חותמת גומי:** מנוע ה-AI חייב לתת הסתברות של מעל 54% לעלייה.
-
-בנוסף, הוספתי את ה-MACD כגרף חמישי ואינדיקטור ברור במסך של "ניתוח מניה בודדת", כדי שתוכל לראות את הפריצה בעיניים.
-
-העתק את הקוד המלא הבא והחלף את כל התוכן בקובץ **`app.py`**:
-
-```python
-import sys
-import os
-import json
-import urllib3
-import requests
-import pandas as pd
-import numpy as np
-import streamlit as st
-from sklearn.ensemble import HistGradientBoostingClassifier
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import time
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-st.set_page_config(page_title="AI Stock Analytics Pro - Master Edition", page_icon="📈", layout="wide")
-
-THEMATIC_TICKERS = {
-    "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
-    "קריפטו": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
-    "ביטקויין": ['BTC-USD', 'IBIT', 'FBTC', 'ARKB', 'BITB', 'BITO'],
-    "בינה מלאכותית": ['NVDA', 'AMD', 'SMCI', 'PLTR', 'MSFT', 'GOOGL', 'META', 'TSM', 'ASML', 'CRWD', 'PANW'],
-    "מחשב קוונטי": ['IONQ', 'QBTS', 'RGTI', 'IBM', 'HON', 'GOOGL'],
-    "גיימינג": ['EA', 'TTWO', 'RBLX', 'NTES', 'SONY', 'MSFT', 'TCEHY'],
-    "זהב": ['GLD', 'IAU', 'GDX', 'NEM', 'GOLD', 'AEM', 'FNV'],
-    "אנרגיה ותשתיות": ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PXD', 'VLO', 'NEP', 'BIP'],
-    "קרנות ישראליות": ['EIS', 'IZRL', 'ISRA', 'ITEQ', 'TA35.TA', 'TA125.TA', 'LEUMI.TA', 'POALIM.TA', 'NICE.TA'],
-    "בריאות": ['LLY', 'UNH', 'JNJ', 'MRK', 'ABBV', 'TMO', 'PFE', 'DHR', 'AMGN', 'ISRG'],
-    "פיננסים": ['BRK-B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'MS', 'GS', 'BLK', 'C'],
-    "תקשורת": ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'CHTR', 'TMUS'],
-    "תעשייה": ['CAT', 'GE', 'UNP', 'HON', 'BA', 'UPS', 'RTX', 'LMT', 'DE', 'ADP'],
-    "תחום הצריכה": ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'WMT', 'PG', 'KO', 'PEP', 'COST'],
-    "שירותים": ['NEE', 'DUK', 'SO', 'SRE', 'AEP', 'D', 'EXC', 'XEL'],
-    "נדל\"ן": ['PLD', 'AMT', 'EQIX', 'CCI', 'PSA', 'O', 'SPG', 'WELL']
-}
-
-@st.cache_data
-def get_stock_universe():
-    israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
-    etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
-    
+    # מאגר הגיבוי למקרה של חוסר תקשורת (כ-500 חברות גדולות)
     sp500_hardcoded = [
         'MMM', 'AOS', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'AES', 'AFL', 'A', 'APD', 'ABNB', 'AKAM', 'ALB', 'ARE', 
         'ALGN', 'ALLE', 'LNT', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AMCR', 'AEE', 'AAL', 'AEP', 'AXP', 'AIG', 
@@ -141,10 +81,21 @@ def get_stock_universe():
         'GWW', 'WYNN', 'XEL', 'XYL', 'YUM', 'ZBRA', 'ZBH', 'ZION', 'ZTS'
     ]
     
-    all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-    massive_universe = sorted(list(set(sp500_hardcoded + all_thematic + israeli_stocks + etfs)))
-    
-    return massive_universe, sp500_hardcoded, israeli_stocks
+    try:
+        # משיכת אלפי מניות ישירות מרשות ניירות הערך האמריקאית (SEC)
+        headers = {'User-Agent': 'AIStockPro/2.0 (contact@example.com)'}
+        url = 'https://www.sec.gov/files/company_tickers.json'
+        res = requests.get(url, headers=headers, timeout=10)
+        data = res.json()
+        sec_tickers = [item['ticker'] for item in data.values()]
+        
+        # איחוד כל הרשימות למאגר עצום (ללא כפילויות) - לרוב כ-11,000 נכסים!
+        massive_universe = sorted(list(set(sec_tickers + all_thematic + israeli_stocks + etfs)))
+        return massive_universe, sec_tickers, israeli_stocks
+    except Exception:
+        # במקרה שה-SEC חסום, חוזרים לרשימת ה-500
+        massive_universe = sorted(list(set(sp500_hardcoded + all_thematic + israeli_stocks + etfs)))
+        return massive_universe, sp500_hardcoded, israeli_stocks
 
 WATCHLIST_FILE = "watchlist.json"
 DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'BTC-USD', 'NVDA', 'LEUMI.TA', 'TSLA']
@@ -173,7 +124,7 @@ if 'watchlist' not in st.session_state:
 def send_telegram_msg(bot_token, chat_id, text):
     if not bot_token or not chat_id:
         return False, "נא להגדיר Token ו-Chat ID בסרגל הצד."
-    url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMessage"
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     try:
         res = requests.post(url, json=payload, timeout=5)
@@ -184,7 +135,7 @@ def send_telegram_msg(bot_token, chat_id, text):
         return False, str(e)
 
 def fetch_yahoo_chart(ticker):
-    url = f"[https://query1.finance.yahoo.com/v8/finance/chart/](https://query1.finance.yahoo.com/v8/finance/chart/){ticker}?range=2y&interval=1d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
@@ -279,7 +230,6 @@ def process_features_and_model(df):
     mf_volume = mf_multiplier * df['Volume']
     df['CMF'] = mf_volume.rolling(20).sum() / (df['Volume'].rolling(20).sum() + 1e-8)
 
-    # --- הוספת חישובי ה-MACD החדשים ---
     df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
     df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['EMA_12'] - df['EMA_26']
@@ -417,7 +367,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 col3.metric("ADX (מגמה)", f"{adx_val:.1f}")
                 col4.metric("CMF (מוסדיים)", f"{latest_cmf:+.2f}")
                 
-                # סטטוס MACD חכם
                 if macd_h > 0 and macd_h > macd_h_prev:
                     col5.metric("MACD מומנטום", "🟢 פריצה חיובית")
                 elif macd_h > 0:
@@ -434,7 +383,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
 
                 vol_colors = ['green' if row['Close'] >= row['Open'] else 'red' for index, row in df.iterrows()]
                 
-                # הוספנו שורה חמישית לגרף עבור ה-MACD
                 fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.3, 0.15, 0.15, 0.2, 0.2],
                                     subplot_titles=("מחיר וממוצעים", "RSI", "נפח מסחר", "ADX & CMF", "MACD (מומנטום פריצה)"))
                 
@@ -452,7 +400,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 fig.add_trace(go.Bar(x=df['Date'], y=df['CMF'], marker_color=cmf_colors, name='CMF'), row=4, col=1)
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['ADX'], line=dict(color='black', width=2), name='ADX'), row=4, col=1)
                 
-                # ציור ה-MACD
                 macd_colors = ['green' if val >= 0 else 'red' for val in df['MACD_Hist']]
                 fig.add_trace(go.Bar(x=df['Date'], y=df['MACD_Hist'], marker_color=macd_colors, name='MACD Hist'), row=5, col=1)
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=5, col=1)
@@ -496,16 +443,16 @@ else:
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode)")
     st.markdown("סריקה חסרת רחמים. המערכת תחזיר רק מניות המציגות: מגמה חזקה (ADX>25), כניסת כסף (CMF>0), הסתברות AI>54%, **ופריצת MACD מאיצה כלפי מעלה.**")
     
-    options = ["הכל (סריקה מלאה של כל המאגר!)"] + list(THEMATIC_TICKERS.keys())
+    options = ["הכל (סריקה מלאה של 10,000+ מניות!)"] + list(THEMATIC_TICKERS.keys())
     scan_group = st.selectbox("בחר קטגוריה לסריקה:", options)
     
     if st.button("🔎 התחל בסריקת השוק"):
-        if scan_group == "הכל (סריקה מלאה של כל המאגר!)":
+        if scan_group == "הכל (סריקה מלאה של 10,000+ מניות!)":
             target_list = all_tickers
         else:
             target_list = THEMATIC_TICKERS[scan_group]
         
-        st.info(f"מתחיל סריקת צלף של {len(target_list)} נכסים... מחפש רק את היהלומים. זה יכול לקחת זמן.")
+        st.info(f"מתחיל סריקת צלף של {len(target_list)} נכסים... מחפש רק את היהלומים. סריקה מלאה תיקח מספר שעות.")
         
         opportunities = []
         progress_bar = st.progress(0)
@@ -525,7 +472,6 @@ else:
                     macd_h = df['MACD_Hist'].iloc[-1]
                     macd_h_prev = df['MACD_Hist'].iloc[-2]
                     
-                    # הפילטר האכזרי: AI + ADX + CMF + MACD חיובי ומאיץ
                     if avg_p >= 54 and adx_v >= 25 and cmf_v > 0 and macd_h > 0 and macd_h > macd_h_prev:
                         price = df['Close'].iloc[-1]
                         rsi_v = df['RSI'].iloc[-1]

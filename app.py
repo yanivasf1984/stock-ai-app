@@ -39,32 +39,54 @@ THEMATIC_TICKERS = {
 def get_stock_universe():
     israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
-    try:
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        response = requests.get(url, headers=headers, timeout=5)
-        table = pd.read_html(response.text)[0]
-        us_stocks = table['Symbol'].tolist()
-        return sorted(list(set(us_stocks + israeli_stocks + etfs))), us_stocks, israeli_stocks
-    except:
-        # רשימת התותחים הכבדים של וול סטריט (למקרה של חסימת שרת)
-        fallback = [
-            'AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'BRK-B', 'LLY', 'AVGO',
-            'JPM', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD', 'COST', 'MRK', 'ABBV', 'CRM',
-            'CVX', 'AMD', 'BAC', 'WMT', 'KO', 'NFLX', 'PEP', 'TMO', 'MCD', 'LIN', 'DIS', 'ADBE',
-            'ORCL', 'CSCO', 'INTC', 'QCOM', 'TXN', 'IBM', 'AMAT', 'BA', 'GE', 'CAT', 'HON', 'UPS',
-            'RTX', 'LMT', 'DE', 'UNP', 'GS', 'MS', 'BLK', 'C', 'AXP', 'SCHW', 'SYK', 'MDT', 'ISRG',
-            'AMGN', 'PFE', 'DHR', 'BMY', 'GILD', 'CVS', 'CI', 'ELV', 'NEE', 'DUK', 'SO', 'SRE',
-            'AEP', 'D', 'EXC', 'XEL', 'PLD', 'AMT', 'EQIX', 'CCI', 'PSA', 'O', 'SPG', 'WELL',
-            'NKE', 'SBUX', 'TGT', 'LOW', 'BKNG', 'MAR', 'DAL', 'UAL', 'AAL', 'LUV', 'F', 'GM',
-            'COP', 'SLB', 'EOG', 'MPC', 'PXD', 'VLO', 'OXY', 'HAL', 'BKR', 'KMI', 'WMB'
-        ]
-        
-        # איחוד של רשימת הגיבוי הענקית יחד עם כל הקטגוריות והמניות הישראליות שלנו
-        all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-        massive_fallback = sorted(list(set(fallback + all_thematic + israeli_stocks + etfs)))
-        
-        return massive_fallback, fallback, israeli_stocks
+    
+    # מאגר צרוב (Hardcoded) של מאות מניות ה-S&P 500 המובילות 
+    sp500_hardcoded = [
+        'MMM', 'AOS', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'AES', 'AFL', 'A', 'APD', 'ABNB', 'AKAM', 'ALB', 'ARE', 
+        'ALGN', 'ALLE', 'LNT', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AMCR', 'AEE', 'AAL', 'AEP', 'AXP', 'AIG', 
+        'AMT', 'AWK', 'AMP', 'AME', 'AMGN', 'APH', 'ADI', 'ANSS', 'AON', 'APA', 'AAP', 'AMAT', 'APTV', 'ACGL', 
+        'ADM', 'ANET', 'AJG', 'AIZ', 'T', 'ATO', 'ADSK', 'ADP', 'AZO', 'AVB', 'AVY', 'AXON', 'BKR', 'BALL', 
+        'BAC', 'BK', 'BBWI', 'BAX', 'BDX', 'BRK-B', 'BBY', 'BIO', 'TECH', 'BIIB', 'BLK', 'BX', 'BA', 'BKNG', 
+        'BWA', 'BXP', 'BSX', 'BMY', 'AVGO', 'BR', 'BRO', 'BF-B', 'BG', 'CHRW', 'CDNS', 'CZR', 'CPT', 'CPB', 
+        'COF', 'CAH', 'KMX', 'CCL', 'CARR', 'CTLT', 'CAT', 'CBOE', 'CBRE', 'CDW', 'CE', 'COR', 'CNC', 'CNP', 
+        'CDAY', 'CF', 'CRL', 'SCHW', 'CHTR', 'CVX', 'CMG', 'CB', 'CHD', 'CI', 'CINF', 'CTAS', 'CSCO', 'C', 
+        'CFG', 'CLX', 'CME', 'CMS', 'KO', 'CTSH', 'CL', 'CMCSA', 'CMA', 'CAG', 'COP', 'ED', 'STZ', 'CEG', 
+        'COO', 'CPRT', 'GLW', 'CTVA', 'CSGP', 'COST', 'CTRA', 'CCI', 'CSX', 'CMI', 'CVS', 'DHI', 'DHR', 'DRI', 
+        'DVA', 'DE', 'DAL', 'XRAY', 'DVN', 'DXCM', 'FANG', 'DLR', 'DFS', 'DG', 'DLTR', 'D', 'DPZ', 'DOV', 
+        'DOW', 'DTE', 'DUK', 'DD', 'EMN', 'ETN', 'EBAY', 'ECL', 'EIX', 'EW', 'EA', 'ELV', 'LLY', 'EMR', 
+        'ENPH', 'ETR', 'EOG', 'EPAM', 'EQT', 'EFX', 'EQIX', 'EQR', 'ESS', 'EL', 'ETY', 'EVRG', 'ES', 'EXC', 
+        'EXPE', 'EXPD', 'EXR', 'XOM', 'FFIV', 'FDS', 'FICO', 'FAST', 'FRT', 'FDX', 'FIS', 'FITB', 'FSLR', 
+        'FE', 'FI', 'FLT', 'FMC', 'F', 'FTNT', 'FTV', 'FOXA', 'FOX', 'BEN', 'FCX', 'GRMN', 'IT', 'GEHC', 
+        'GEN', 'GNRC', 'GD', 'GE', 'GIS', 'GM', 'GPC', 'GILD', 'GL', 'GPN', 'GS', 'HAL', 'HIG', 'HAS', 
+        'HCA', 'PEAK', 'HSIC', 'HSY', 'HES', 'HPE', 'HLT', 'HOLX', 'HD', 'HON', 'HRL', 'HST', 'HWM', 'HPQ', 
+        'HUBB', 'HUM', 'HBAN', 'HII', 'IBM', 'IEX', 'IDXX', 'ITW', 'ILMN', 'INCY', 'IR', 'PODD', 'INTC', 
+        'ICE', 'IFF', 'IP', 'IPG', 'INTU', 'ISRG', 'IVZ', 'INVH', 'IQV', 'IRM', 'JBHT', 'JKHY', 'J', 'JNJ', 
+        'JCI', 'JPM', 'JNPR', 'K', 'KVVUE', 'KDP', 'KEY', 'KEYS', 'KMB', 'KIM', 'KMI', 'KLAC', 'KHC', 'KR', 
+        'LHX', 'LH', 'LRCX', 'LW', 'LVS', 'LDOS', 'LEN', 'LIN', 'LYV', 'LKQ', 'LMT', 'L', 'LOW', 'LULU', 
+        'LYB', 'MTB', 'MRO', 'MPC', 'MKTX', 'MAR', 'MMC', 'MLM', 'MAS', 'MA', 'MTCH', 'MKC', 'MCD', 'MCK', 
+        'MDT', 'MRK', 'META', 'MET', 'MTD', 'MGM', 'MCHP', 'MU', 'MSFT', 'MAA', 'MRNA', 'MHK', 'MOH', 'TAP', 
+        'MDLZ', 'MPWR', 'MNST', 'MCO', 'MS', 'MOS', 'MSI', 'MSCI', 'NDAQ', 'NTAP', 'NFLX', 'NEM', 'NWSA', 
+        'NWS', 'NEE', 'NKE', 'NI', 'NDSN', 'NSC', 'NTRS', 'NOC', 'NCLH', 'NRG', 'NUE', 'NVDA', 'NVR', 'NXPI', 
+        'ORLY', 'OXY', 'ODFL', 'OMC', 'ON', 'OKE', 'ORCL', 'OTIS', 'PCAR', 'PKG', 'PANW', 'PARA', 'PAYX', 
+        'PAYC', 'PYPL', 'PNR', 'PEP', 'PFE', 'PCG', 'PM', 'PSX', 'PNW', 'PXD', 'PNC', 'POOL', 'PPG', 'PPL', 
+        'PFG', 'PG', 'PGR', 'PLD', 'PRU', 'PEG', 'PTC', 'PSA', 'PHM', 'QRVO', 'PWR', 'QCOM', 'DGX', 'RL', 
+        'RJF', 'RTX', 'O', 'REG', 'REGN', 'RF', 'RSG', 'RMD', 'RVTY', 'RHI', 'ROK', 'ROL', 'ROP', 'ROST', 
+        'RCL', 'SPGI', 'CRM', 'SBAC', 'SLB', 'STX', 'SEE', 'SRE', 'NOW', 'SHW', 'SPG', 'SWKS', 'SJM', 'SNA', 
+        'SO', 'LUV', 'SWK', 'SBUX', 'STT', 'STLD', 'STE', 'SYK', 'SYF', 'SNPS', 'SYY', 'TMUS', 'TROW', 'TTWO', 
+        'TPR', 'TRGP', 'TGT', 'TEL', 'TDY', 'TFX', 'TER', 'TSLA', 'TXN', 'TXT', 'TMO', 'TJX', 'TSCO', 'TT', 
+        'TDG', 'TRV', 'TRMB', 'TFC', 'TYL', 'TSN', 'USB', 'UBER', 'UDR', 'ULTA', 'UNP', 'UAL', 'UHS', 'VLO', 
+        'VTR', 'VLTO', 'VRSN', 'VRSK', 'VZ', 'VRTX', 'VFC', 'VTRS', 'VICI', 'V', 'VMC', 'WAB', 'WBA', 'WMT', 
+        'DIS', 'WBD', 'WM', 'WAT', 'WEC', 'WFC', 'WELL', 'WST', 'WDC', 'WRK', 'WY', 'WHR', 'WMB', 'WTW', 
+        'GWW', 'WYNN', 'XEL', 'XYL', 'YUM', 'ZBRA', 'ZBH', 'ZION', 'ZTS'
+    ]
+    
+    # איסוף כל המניות מהקטגוריות שלנו
+    all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
+    
+    # איחוד הכל לרשימה אחת ענקית ונטולת כפילויות
+    massive_universe = sorted(list(set(sp500_hardcoded + all_thematic + israeli_stocks + etfs)))
+    
+    return massive_universe, sp500_hardcoded, israeli_stocks
 
 WATCHLIST_FILE = "watchlist.json"
 DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'BTC-USD', 'NVDA', 'LEUMI.TA', 'TSLA']
@@ -394,8 +416,7 @@ else:
     
     if st.button("🔎 התחל בסריקת השוק"):
         if scan_group == "הכל (סריקה מלאה של כל המאגר!)":
-            all_thematic_tickers = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-            target_list = list(set(us_stocks + israeli_stocks + all_thematic_tickers))
+            target_list = all_tickers
         else:
             target_list = THEMATIC_TICKERS[scan_group]
         

@@ -514,7 +514,7 @@ else:
             if st.button("📲 שלח התראות קנייה לטלגרם"):
                 msg = "💎 *יהלומים זוהו בצייד ההזדמנויות:*\n\n"
                 for r in opportunities:
-                    bb_alert = "(בסקוויז!)" if "קפיץ" in r['מצב בולינג'ר'] else ""
+                   bb_alert = "(בסקוויז!)" if "קפיץ" in r["מצב בולינג'ר"] else ""
                     msg += f"🔥 *{r['סימול']}* {bb_alert}\nמחיר: {r['מחיר']} | AI: {r['ציון AI']} | MACD מאיץ\n"
                 success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
                 st.success(res_msg) if success else st.error(res_msg)

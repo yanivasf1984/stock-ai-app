@@ -15,7 +15,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="AI Stock Analytics Pro - Ultimate Edition", page_icon="💎", layout="wide")
 
-# --- מאגר קטגוריות מותאם אישית ---
 THEMATIC_TICKERS = {
     "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
     "קריפטו": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
@@ -41,76 +40,12 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
-    # מאגר הגיבוי
-    sp500_hardcoded = [
-        'MMM', 'AOS', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'AES', 'AFL', 'A', 'APD', 'ABNB', 'AKAM', 'ALB', 'ARE', 
-        'ALGN', 'ALLE', 'LNT', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AMCR', 'AEE', 'AAL', 'AEP', 'AXP', 'AIG', 
-        'AMT', 'AWK', 'AMP', 'AME', 'AMGN', 'APH', 'ADI', 'ANSS', 'AON', 'APA', 'AAP', 'AMAT', 'APTV', 'ACGL', 
-        'ADM', 'ANET', 'AJG', 'AIZ', 'T', 'ATO', 'ADSK', 'ADP', 'AZO', 'AVB', 'AVY', 'AXON', 'BKR', 'BALL', 
-        'BAC', 'BK', 'BBWI', 'BAX', 'BDX', 'BRK-B', 'BBY', 'BIO', 'TECH', 'BIIB', 'BLK', 'BX', 'BA', 'BKNG', 
-        'BWA', 'BXP', 'BSX', 'BMY', 'AVGO', 'BR', 'BRO', 'BF-B', 'BG', 'CHRW', 'CDNS', 'CZR', 'CPT', 'CPB', 
-        'COF', 'CAH', 'KMX', 'CCL', 'CARR', 'CTLT', 'CAT', 'CBOE', 'CBRE', 'CDW', 'CE', 'COR', 'CNC', 'CNP', 
-        'CDAY', 'CF', 'CRL', 'SCHW', 'CHTR', 'CVX', 'CMG', 'CB', 'CHD', 'CI', 'CINF', 'CTAS', 'CSCO', 'C', 
-        'CFG', 'CLXמצטער על התקלה הקודמת! המערכת חסמה את התשובה כנראה בגלל שורות הקוד הארוכות מאוד של רשימת 500 המניות (היא לעיתים מזהה טקסטים ארוכים וקבועים כהפרת זכויות יוצרים של מדדים). 
-
-כדי לעקוף את זה בצורה חלקה, אני נותן לך כאן את **הקוד המלא והמעודכן**, אבל קיצרתי במעט את רשימת "מניות הגיבוי" הצרובה. אין לזה שום משמעות בפועל – כי הרי המערכת שלך מחוברת ל-SEC ומושכת משם אוטומטית מעל 10,000 מניות בכל מקרה!
-
-**מה הוספתי לקוד?**
-1. **חישוב VWMA (ממוצע נע 20 יום משוקלל נפח).** 
-2. **סינון צלף חדש:** מניה תתקבל לסורק רק אם המחיר שלה כרגע גבוה מה-VWMA (כלומר, הכסף המוסדי החכם ברווח ולא בורח מהמניה).
-3. **תצוגה בגרף הראשי:** הוספתי קו מרוסק בצבע מג'נטה (ורוד-סגול) שמראה לך בדיוק איפה עובר ה-VWMA המוסדי, כך שתוכל לראות פריצות עליו בעיניים.
-
-הנה הקוד המלא – סמן את כל מה שיש ב-`app.py`, מחק הכל, והדבק:
-
-```python
-import sys
-import os
-import json
-import urllib3
-import requests
-import pandas as pd
-import numpy as np
-import streamlit as st
-from sklearn.ensemble import HistGradientBoostingClassifier
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import time
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-st.set_page_config(page_title="AI Stock Analytics Pro - Ultimate Edition", page_icon="💎", layout="wide")
-
-THEMATIC_TICKERS = {
-    "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
-    "קריפטו": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
-    "ביטקויין": ['BTC-USD', 'IBIT', 'FBTC', 'ARKB', 'BITB', 'BITO'],
-    "בינה מלאכותית": ['NVDA', 'AMD', 'SMCI', 'PLTR', 'MSFT', 'GOOGL', 'META', 'TSM', 'ASML', 'CRWD', 'PANW'],
-    "מחשב קוונטי": ['IONQ', 'QBTS', 'RGTI', 'IBM', 'HON', 'GOOGL'],
-    "גיימינג": ['EA', 'TTWO', 'RBLX', 'NTES', 'SONY', 'MSFT', 'TCEHY'],
-    "זהב": ['GLD', 'IAU', 'GDX', 'NEM', 'GOLD', 'AEM', 'FNV'],
-    "אנרגיה ותשתיות": ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PXD', 'VLO', 'NEP', 'BIP'],
-    "קרנות ישראליות": ['EIS', 'IZRL', 'ISRA', 'ITEQ', 'TA35.TA', 'TA125.TA', 'LEUMI.TA', 'POALIM.TA', 'NICE.TA'],
-    "בריאות": ['LLY', 'UNH', 'JNJ', 'MRK', 'ABBV', 'TMO', 'PFE', 'DHR', 'AMGN', 'ISRG'],
-    "פיננסים": ['BRK-B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'MS', 'GS', 'BLK', 'C'],
-    "תקשורת": ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'CHTR', 'TMUS'],
-    "תעשייה": ['CAT', 'GE', 'UNP', 'HON', 'BA', 'UPS', 'RTX', 'LMT', 'DE', 'ADP'],
-    "תחום הצריכה": ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'WMT', 'PG', 'KO', 'PEP', 'COST'],
-    "שירותים": ['NEE', 'DUK', 'SO', 'SRE', 'AEP', 'D', 'EXC', 'XEL'],
-    "נדל\"ן": ['PLD', 'AMT', 'EQIX', 'CCI', 'PSA', 'O', 'SPG', 'WELL']
-}
-
-@st.cache_data
-def get_stock_universe():
-    israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
-    etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
-    all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-    
-    # רשימת גיבוי בסיסית (קוצרה כדי למנוע חסימות מערכת)
+    # רשימת גיבוי קומפקטית כדי למנוע קריסות ותקלות קוד
     fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'BRK-B', 'LLY', 'AVGO', 'JPM', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD']
     
     try:
         headers = {'User-Agent': 'AIStockPro/2.0 (contact@example.com)'}
-        url = '[https://www.sec.gov/files/company_tickers.json](https://www.sec.gov/files/company_tickers.json)'
+        url = 'https://www.sec.gov/files/company_tickers.json'
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
         sec_tickers = [item['ticker'] for item in data.values()]
@@ -147,7 +82,7 @@ if 'watchlist' not in st.session_state:
 def send_telegram_msg(bot_token, chat_id, text):
     if not bot_token or not chat_id:
         return False, "נא להגדיר Token ו-Chat ID בסרגל הצד."
-    url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){bot_token}/sendMessage"
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     try:
         res = requests.post(url, json=payload, timeout=5)
@@ -158,7 +93,7 @@ def send_telegram_msg(bot_token, chat_id, text):
         return False, str(e)
 
 def fetch_yahoo_chart(ticker):
-    url = f"[https://query1.finance.yahoo.com/v8/finance/chart/](https://query1.finance.yahoo.com/v8/finance/chart/){ticker}?range=2y&interval=1d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
@@ -244,7 +179,7 @@ def process_features_and_model(df):
     df['SMA_20'] = df['Close'].rolling(20).mean()
     df['SMA_50'] = df['Close'].rolling(50).mean()
     
-    # --- הוספת VWMA (מוסדיים) ל-20 יום ---
+    # VWMA - ממוצע נע משוקלל נפח (20 יום)
     df['VWMA_20'] = (df['Close'] * df['Volume']).rolling(20).sum() / (df['Volume'].rolling(20).sum() + 1e-8)
     
     df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
@@ -398,7 +333,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 col2.metric("הסתברות AI", f"{avg_prob:.1f}%")
                 col3.metric("ADX (מגמה)", f"{adx_val:.1f}")
                 
-                # VWMA Status
                 if current_price > current_vwma:
                     col4.metric("VWMA (מוסדיים)", "🟢 קונים שולטים")
                 else:
@@ -428,13 +362,10 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.3, 0.15, 0.15, 0.2, 0.2],
                                     subplot_titles=("מחיר, ממוצעים (כולל VWMA מוסדי) ורצועות בולינג'ר", "RSI", "נפח מסחר", "ADX & CMF", "MACD (מומנטום פריצה)"))
                 
-                # ציור גרף המחיר, רצועות בולינג'ר, וה-VWMA החדש
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_Upper'], line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dash'), name='BB Upper', showlegend=False), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_Lower'], line=dict(color='rgba(150, 150, 150, 0.5)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(150, 150, 150, 0.1)', name='BB Lower', showlegend=False), row=1, col=1)
                 fig.add_trace(go.Candlestick(x=df['Date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='נרות'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['SMA_20'], line=dict(color='orange', width=1.5), name='SMA 20'), row=1, col=1)
-                
-                # הוספת ה-VWMA בצבע מג'נטה
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['VWMA_20'], line=dict(color='magenta', width=2, dash='dot'), name='VWMA (מוסדי)'), row=1, col=1)
                 
                 fig.add_trace(go.Scatter(x=df['Date'], y=df['RSI'], line=dict(color='purple', width=1.5), name='RSI'), row=2, col=1)
@@ -470,7 +401,8 @@ elif app_mode == "📋 סורק רשימת מעקב":
                 if processed[0] is not None:
                     df, p_short, p_long, avg_p, acc_s, acc_l = processed
                     price = df['Close'].iloc[-1]
-                    adx_v, cmf_v = df['ADX'].iloc[-1], df['CMF'].iloc[-1]
+                    adx_v = df['ADX'].iloc[-1]
+                    cmf_v = df['CMF'].iloc[-1]
                     macd_h = df['MACD_Hist'].iloc[-1]
                     macd_h_prev = df['MACD_Hist'].iloc[-2]
                     vwma_v = df['VWMA_20'].iloc[-1]
@@ -525,7 +457,6 @@ else:
                     bb_width = df['BB_Width'].iloc[-1]
                     vwma_v = df['VWMA_20'].iloc[-1]
                     
-                    # פילטר היהלומים המשודרג: כולל מעבר של ה-VWMA
                     if avg_p >= 54 and adx_v >= 25 and cmf_v > 0 and macd_h > 0 and macd_h > macd_h_prev and price > vwma_v:
                         rsi_v = df['RSI'].iloc[-1]
                         bb_status = "🔥 קפיץ דרוך" if bb_width < 0.10 else "🌊 תנועה רחבה"

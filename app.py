@@ -278,16 +278,24 @@ def process_features_and_model(df):
 
 all_tickers, us_stocks, israeli_stocks = get_stock_universe()
 
+# --- בחירת מצב עבודה (הגדרת app_mode חייבת להיות כאן למעלה) ---
 st.sidebar.title("🎮 מצבי עבודה")
 app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק", "💼 ניהול תיק השקעות"])
 
+# --- לוגיקת הטייס האוטומטי המשופרת ---
 st.sidebar.markdown("---")
 st.sidebar.header("⏰ טייס אוטומטי (מניעת תרדמת)")
 auto_refresh_enabled = st.sidebar.checkbox("הפעל רענון ברקע (מונע תרדמת)", value=False)
+
 if auto_refresh_enabled:
     refresh_interval = st.sidebar.slider("רענן ובדוק עסקאות כל (דקות):", 1, 30, 5)
-    st_autorefresh(interval=refresh_interval * 60 * 1000, key="auto_refresh_timer")
-    st.sidebar.success(f"✅ טייס אוטומטי פועל: המערכת סורקת כל {refresh_interval} דקות.")
+    
+    # בדיקה חכמה: האם אנחנו במסך סריקת הצייד?
+    if app_mode == "🚀 צייד הזדמנויות שוק":
+        st.sidebar.warning("⏸️ הטייס האוטומטי מושהה זמנית במסך זה כדי לא לקטוע את סריקת הצייד באמצע.")
+    else:
+        st_autorefresh(interval=refresh_interval * 60 * 1000, key="auto_refresh_timer")
+        st.sidebar.success(f"✅ טייס אוטומטי פועל: המערכת סורקת כל {refresh_interval} דקות.")
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ ניהול רשימת מעקב")

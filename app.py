@@ -44,7 +44,6 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
-    # 1. ניסיון לפרוץ ל-SEC עם תעודת זהות נוקשה בדיוק כמו שהם דורשים!
     try:
         headers = {'User-Agent': 'AI_Stock_Hunter mytradingapp@gmail.com'}
         url = 'https://www.sec.gov/files/company_tickers.json'
@@ -57,7 +56,6 @@ def get_stock_universe():
     except Exception:
         pass
 
-    # 2. גיבוי מפלדה (בלי ויקיפדיה) - שאיבת קובץ CSV ישירות מ-GitHub
     try:
         sp500_df = pd.read_csv('https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv')
         sp500_tickers = sp500_df['Symbol'].tolist()
@@ -67,7 +65,6 @@ def get_stock_universe():
     except Exception:
         pass
 
-    # 3. גיבוי אחרון בהחלט אם אין אינטרנט או ששני השרתים נפלו
     fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']
     massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
     return massive_universe, fallback_list, israeli_stocks
@@ -283,9 +280,6 @@ st.sidebar.header("📱 טלגרם")
 tg_token = st.sidebar.text_input("Token:", value="8979601396:AAFQjLLDf81HJPh8RjkpcpzQYxYAAHd8jpw", type="password")
 tg_chat_id = st.sidebar.text_input("Chat ID:", value="5117812191")
 
-# ==========================================
-# 1. מצב ניתוח מניה בודדת (עם 6 הגרפים)
-# ==========================================
 if app_mode == "🔍 ניתוח מניה בודדת":
     st.title("🔍 ניתוח צלף מקצועי (כולל לווייתנים וקפיץ)")
     target_ticker = st.text_input("הקלד סימול מניה (למשל TSLA, BTC-USD):", value="SPY").strip().upper()
@@ -324,7 +318,8 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 col7.metric("פעילות לווייתנים", "🐋 קנייה ענקית זוהתה!" if is_whale else "רגיל")
                 col8.metric("עוצמה יחסית (RS)", "👑 חזקה מהשוק" if rs_current > rs_sma else "🐢 חלשה מהשוק")
 
-                if avg_prob >= 54 and adx_val > 25 and macd_h > 0 and current_price > current_vwma:
+                # תנאי התרעה תואמים לצייד החדש
+                if avg_prob >= 52 and adx_val >= 20 and macd_h > 0 and current_price > current_vwma:
                     alert_text = "🎯 **יהלום! איתות קנייה חזק + מומנטום + תמיכת קונים (STRONG BUY)**"
                     if not is_squeeze: alert_text += " [הקפיץ השתחרר!]"
                     st.success(alert_text)
@@ -384,9 +379,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                         save_json_file(PORTFOLIO_FILE, st.session_state.portfolio)
                         st.success(f"העסקה נשמרה בתיק! 💼")
 
-# ==========================================
-# 2. מצב רשימת מעקב
-# ==========================================
 elif app_mode == "📋 סורק רשימת מעקב":
     st.title("📋 סורק רשימת מעקב")
     if not st.session_state.watchlist: st.warning("רשימת המעקב שלך ריקה.")
@@ -406,7 +398,8 @@ elif app_mode == "📋 סורק רשימת מעקב":
                     sqz = "🗜️" if df['Squeeze_On'].iloc[-1] else ""
                     rs_icon = "👑" if df['RS'].iloc[-1] > df['RS_SMA_20'].iloc[-1] else ""
                     
-                    rec = "🎯 יהלום" if (avg_p >= 54 and df['ADX'].iloc[-1] > 25 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]) else ("🟡 המתנה" if avg_p >= 48 else "🔴 מכירה")
+                    # תנאים מותאמים
+                    rec = "🎯 יהלום" if (avg_p >= 52 and df['ADX'].iloc[-1] >= 20 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]) else ("🟡 המתנה" if avg_p >= 48 else "🔴 מכירה")
                     results.append({"סימול": actual_ticker, "מחיר": f"{curr}{price:.2f}", "המלצה": rec, "AI": f"{avg_p:.1f}%", "אינדיקטורים": f"{whale} {sqz} {rs_icon}"})
             progress_bar.progress((idx + 1) / len(st.session_state.watchlist))
         progress_bar.empty()
@@ -414,12 +407,9 @@ elif app_mode == "📋 סורק רשימת מעקב":
         if results:
             st.dataframe(pd.DataFrame(results), use_container_width=True)
 
-# ==========================================
-# 3. צייד הזדמנויות שוק (רדאר מסתובב + עיבוד מקבילי אגרסיבי)
-# ==========================================
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - MultiThreaded)")
-    st.markdown("מחפש מניות שעוברות את כל מבחני הכוח. **מריץ 10 סריקות במקביל לביצועים מקסימליים!**")
+    st.markdown("מחפש מניות שעוברות את מבחני הכוח. הכיול עודכן (AI > 52%, ADX >= 20, MACD חיובי) **מריץ סריקות במקביל לביצועים מקסימליים!**")
     
     scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק אקראית מתוך מאגר של {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
     
@@ -433,7 +423,8 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                     avg_p = processed[3]
                     price = df['Close'].iloc[-1]
                     
-                    if avg_p >= 54 and df['ADX'].iloc[-1] >= 25 and df['CMF'].iloc[-1] > 0 and df['MACD_Hist'].iloc[-1] > 0 and df['MACD_Hist'].iloc[-1] > df['MACD_Hist'].iloc[-2] and price > df['VWMA_20'].iloc[-1]:
+                    # הנה ההקלה בתנאים שהכנסנו (רף AI ירד ל-52, ADX ל-20, אין חובה ל-CMF והאצת MACD)
+                    if avg_p >= 52 and df['ADX'].iloc[-1] >= 20 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]:
                         whale = "🐋 כן!" if df['Whale_Buy'].iloc[-1] else "לא"
                         sqz = "🗜️ דחוס" if df['Squeeze_On'].iloc[-1] else "משוחרר"
                         rs_status = "👑 חזקה" if df['RS'].iloc[-1] > df['RS_SMA_20'].iloc[-1] else "חלשה"
@@ -483,9 +474,6 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         else:
             st.warning("לא נמצאו יהלומים שעומדים בכל הקריטריונים הנוקשים כרגע. לחץ שוב להגרלה חדשה!")
 
-# ==========================================
-# 4. מצב ניהול תיק השקעות אישי
-# ==========================================
 elif app_mode == "💼 ניהול תיק השקעות":
     st.title("💼 תחנת פיקוד: תיק השקעות וניטור בריאות")
     if not st.session_state.portfolio: st.info("התיק שלך ריק כרגע.")

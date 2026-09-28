@@ -12,6 +12,7 @@ from plotly.subplots import make_subplots
 import time
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+import random  # <-- הספריה החדשה שתעשה לנו את ההגרלות
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -44,15 +45,14 @@ def get_stock_universe():
     fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'BRK-B', 'LLY', 'AVGO', 'JPM', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD']
     
     try:
-        # משיכת רשימת 1,500 מניות העילית במקום ה-10,000 של ה-SEC
-        sp500 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]['Symbol'].tolist()
-        sp400 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_400_companies')[0]['Symbol'].tolist()
-        sp600 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_600_companies')[0]['Symbol'].tolist()
-        elite_1500 = list(set(sp500 + sp400 + sp600))
-        elite_1500 = [s.replace('.', '-') for s in elite_1500]
-        
-        massive_universe = sorted(list(set(elite_1500 + all_thematic + israeli_stocks + etfs)))
-        return massive_universe, elite_1500, israeli_stocks
+        # חזרנו למשוך את כל ה-10,000+ מניות מה-SEC כדי שיהיה לנו אוקיינוס גדול לדוג ממנו
+        headers = {'User-Agent': 'AIStockPro/2.0 (contact@example.com)'}
+        url = 'https://www.sec.gov/files/company_tickers.json'
+        res = requests.get(url, headers=headers, timeout=10)
+        data = res.json()
+        sec_tickers = [item['ticker'] for item in data.values()]
+        massive_universe = sorted(list(set(sec_tickers + all_thematic + israeli_stocks + etfs)))
+        return massive_universe, sec_tickers, israeli_stocks
     except Exception:
         massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
         return massive_universe, fallback_list, israeli_stocks
@@ -187,10 +187,8 @@ def process_features_and_model(df):
     df['VWMA_20'] = (df['Close'] * df['Volume']).rolling(20).sum() / (df['Volume'].rolling(20).sum() + 1e-8)
     df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
     
-    # 🐋 אנומליות ווליום (Whales)
     df['Whale_Buy'] = (df['Volume'] > df['Vol_SMA_20'] * 2.5) & (df['Close'] > df['Open'])
     
-    # 👑 עוצמה יחסית (Relative Strength)
     df['RS'] = df['Close'] / df['SP500_Close']
     df['RS_SMA_20'] = df['RS'].rolling(20).mean()
     
@@ -203,7 +201,6 @@ def process_features_and_model(df):
     df['BB_Lower'] = df['SMA_20'] - (2 * std_20)
     df['BB_Width'] = (df['BB_Upper'] - df['BB_Lower']) / df['SMA_20']
 
-    # חישוב ATR עבור ערוצי קלטנר
     up_move = df['High'] - df['High'].shift(1)
     down_move = df['Low'].shift(1) - df['Low']
     tr1 = df['High'] - df['Low']
@@ -212,7 +209,6 @@ def process_features_and_model(df):
     tr = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
     df['ATR'] = tr.ewm(alpha=1/14, adjust=False).mean()
     
-    # 🗜️ מנגנון הקפיץ (TTM Squeeze)
     df['KC_Upper'] = df['SMA_20'] + (1.5 * df['ATR'])
     df['KC_Lower'] = df['SMA_20'] - (1.5 * df['ATR'])
     df['Squeeze_On'] = (df['BB_Upper'] < df['KC_Upper']) & (df['BB_Lower'] > df['KC_Lower'])
@@ -270,11 +266,9 @@ def process_features_and_model(df):
 
 all_tickers, us_stocks, israeli_stocks = get_stock_universe()
 
-# --- בחירת מצב עבודה ---
 st.sidebar.title("🎮 מצבי עבודה")
 app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק", "💼 ניהול תיק השקעות"])
 
-# --- לוגיקת הטייס האוטומטי ---
 st.sidebar.markdown("---")
 st.sidebar.header("⏰ טייס אוטומטי (מניעת תרדמת)")
 auto_refresh_enabled = st.sidebar.checkbox("הפעל רענון ברקע (מונע תרדמת)", value=False)
@@ -311,7 +305,7 @@ tg_token = st.sidebar.text_input("Telegram Bot Token:", value="8979601396:AAFQjL
 tg_chat_id = st.sidebar.text_input("Telegram Chat ID:", value="5117812191")
 
 # ==========================================
-# 1. מצב ניתוח מניה בודדת 
+# 1. מצב ניתוח מניה בודדת (עם 6 הגרפים)
 # ==========================================
 if app_mode == "🔍 ניתוח מניה בודדת":
     st.title("🔍 ניתוח צלף מקצועי (כולל לווייתנים וקפיץ)")
@@ -444,15 +438,23 @@ elif app_mode == "📋 סורק רשימת מעקב":
             st.dataframe(pd.DataFrame(results), use_container_width=True)
 
 # ==========================================
-# 3. צייד הזדמנויות שוק 
+# 3. צייד הזדמנויות שוק (עם הרדאר המסתובב האקראי!)
 # ==========================================
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode)")
     st.markdown("מחפש מניות שעוברות את כל מבחני הכוח: VWMA, מומנטום, **קפיץ TTM, עוצמה יחסית וכניסת לווייתנים!**")
-    scan_group = st.selectbox("בחר קטגוריה לסריקה:", ["הכל (~1,500 מניות S&P 1500 העילית)"] + list(THEMATIC_TICKERS.keys()))
+    
+    # הוספנו את האופציה של הרדאר המסתובב!
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", ["הכל (רדאר מסתובב: 1,500 מניות אקראיות מכלל השוק)"] + list(THEMATIC_TICKERS.keys()))
     
     if st.button("🔎 התחל בסריקת צלף"):
-        target_list = all_tickers if scan_group == "הכל (~1,500 מניות S&P 1500 העילית)" else THEMATIC_TICKERS[scan_group]
+        # לוגיקת ההגרלה האקראית
+        if scan_group == "הכל (רדאר מסתובב: 1,500 מניות אקראיות מכלל השוק)":
+            target_list = random.sample(all_tickers, min(1500, len(all_tickers)))
+            st.info("🎲 מגריל כעת 1,500 מניות חדשות לבדיקה...")
+        else:
+            target_list = THEMATIC_TICKERS[scan_group]
+            
         opportunities = []
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -468,7 +470,6 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                     avg_p = processed[3]
                     price = df['Close'].iloc[-1]
                     
-                    # בדיקת התנאים המלאים והמדוייקים מגרסת הזהב הקודמת
                     if avg_p >= 54 and df['ADX'].iloc[-1] >= 25 and df['CMF'].iloc[-1] > 0 and df['MACD_Hist'].iloc[-1] > 0 and df['MACD_Hist'].iloc[-1] > df['MACD_Hist'].iloc[-2] and price > df['VWMA_20'].iloc[-1]:
                         whale = "🐋 כן!" if df['Whale_Buy'].iloc[-1] else "לא"
                         sqz = "🗜️ דחוס" if df['Squeeze_On'].iloc[-1] else "משוחרר"
@@ -488,7 +489,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                 msg = "💎 *יהלומים זוהו בצייד (מוסדיים בפנים):*\n\n" + "\n".join([f"🔥 *{r['סימול']}* | קפיץ: {r['קפיץ']} | לווייתן: {r['לווייתן']}" for r in opportunities])
                 send_telegram_msg(tg_token, tg_chat_id, msg)
         else:
-            st.warning("לא נמצאו יהלומים שעומדים בכל הקריטריונים הנוקשים כרגע.")
+            st.warning("לא נמצאו יהלומים שעומדים בכל הקריטריונים הנוקשים כרגע. לחץ שוב לסריקת 1,500 מניות חדשות!")
 
 # ==========================================
 # 4. מצב ניהול תיק השקעות אישי

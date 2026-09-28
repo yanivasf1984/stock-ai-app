@@ -40,7 +40,6 @@ def get_stock_universe():
     israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-    
     fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'BRK-B', 'LLY', 'AVGO', 'JPM', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD']
     
     try:
@@ -262,7 +261,6 @@ def process_features_and_model(df):
     
     model_short = HistGradientBoostingClassifier(max_iter=80, max_depth=3, min_samples_leaf=15, l2_regularization=5.0, random_state=42)
     model_short.fit(X_tr_s, y_tr_s)
-    acc_short = model_short.score(X_te_s, y_te_s) * 100
     
     split_l = int(len(df_long) * 0.75)
     X_tr_l, X_te_l = df_long[features].iloc[:split_l], df_long[features].iloc[split_l+20:]
@@ -270,13 +268,12 @@ def process_features_and_model(df):
     
     model_long = HistGradientBoostingClassifier(max_iter=80, max_depth=3, min_samples_leaf=15, l2_regularization=5.0, random_state=42)
     model_long.fit(X_tr_l, y_tr_l)
-    acc_long = model_long.score(X_te_l, y_te_l) * 100
     
     prob_short = model_short.predict_proba(latest_today)[0][1] * 100
     prob_long = model_long.predict_proba(latest_today)[0][1] * 100
     avg_prob = (prob_short + prob_long) / 2
     
-    return df, prob_short, prob_long, avg_prob, acc_short, acc_long
+    return df, prob_short, prob_long, avg_prob, None, None
 
 all_tickers, us_stocks, israeli_stocks = get_stock_universe()
 
@@ -308,7 +305,7 @@ tg_chat_id = st.sidebar.text_input("Telegram Chat ID:", value="5117812191")
 
 # --- 1. מצב ניתוח מניה בודדת ---
 if app_mode == "🔍 ניתוח מניה בודדת":
-    st.title("🔍 ניתוח מעמיק, התראות בלייב וסימולציה היסטורית")
+    st.title("🔍 ניתוח מעמיק והוספה לתיק")
     target_ticker = st.text_input("הקלד סימול מניה (למשל TSLA, BTC-USD, ICL.TA):", value="SPY").strip().upper()
 
     if target_ticker:
@@ -405,7 +402,8 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                             "entry_price": current_price,
                             "qty": qty,
                             "tp": tp,
-                            "sl": sl
+                            "sl": sl,
+                            "alert_sent": None  # שדה מעקב אחרי התראות
                         }
                         st.session_state.portfolio.append(new_trade)
                         save_json_file(PORTFOLIO_FILE, st.session_state.portfolio)
@@ -424,7 +422,8 @@ elif app_mode == "📋 סורק רשימת מעקב":
             if df is not None:
                 processed = process_features_and_model(df)
                 if processed[0] is not None:
-                    df, p_short, p_long, avg_p, acc_s, acc_l = processed
+                    df = processed[0]
+                    avg_p = processed[3]
                     price = df['Close'].iloc[-1]
                     adx_v = df['ADX'].iloc[-1]
                     cmf_v = df['CMF'].iloc[-1]
@@ -441,25 +440,17 @@ elif app_mode == "📋 סורק רשימת מעקב":
             st.dataframe(pd.DataFrame(results), use_container_width=True)
             if st.button("📲 שלח דוח לטלגרם"):
                 msg = "📋 *דוח רשימת מעקב:*\n\n" + "\n".join([f"• {r['סימול']}: {r['המלצה']} (AI: {r['ציון AI']})" for r in results])
-                success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
-                st.success(res_msg) if success else st.error(res_msg)
+                send_telegram_msg(tg_token, tg_chat_id, msg)
 
 # --- 3. צייד הזדמנויות שוק (הסורק האכזרי) ---
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode)")
-    st.markdown("סריקה חסרת רחמים. מניות מתקבלות רק אם: מגמה חזקה (ADX>25), כניסת כסף (CMF>0), הסתברות AI>54%, פריצת MACD מאיצה, **ושהמחיר מעל קו המוסדיים (VWMA)**.")
-    
     options = ["הכל (סריקה מלאה של 10,000+ מניות!)"] + list(THEMATIC_TICKERS.keys())
     scan_group = st.selectbox("בחר קטגוריה לסריקה:", options)
     
     if st.button("🔎 התחל בסריקת השוק"):
-        if scan_group == "הכל (סריקה מלאה של 10,000+ מניות!)":
-            target_list = all_tickers
-        else:
-            target_list = THEMATIC_TICKERS[scan_group]
-        
-        st.info(f"מתחיל סריקת צלף של {len(target_list)} נכסים... מחפש רק את היהלומים. סריקה מלאה תיקח מספר שעות.")
-        
+        target_list = all_tickers if scan_group == "הכל (סריקה מלאה של 10,000+ מניות!)" else THEMATIC_TICKERS[scan_group]
+        st.info(f"מתחיל סריקת צלף של {len(target_list)} נכסים... מחפש רק את היהלומים.")
         opportunities = []
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -471,7 +462,8 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
             if df is not None:
                 processed = process_features_and_model(df)
                 if processed[0] is not None:
-                    df, p_short, p_long, avg_p, acc_s, acc_l = processed
+                    df = processed[0]
+                    avg_p = processed[3]
                     price = df['Close'].iloc[-1]
                     adx_v = df['ADX'].iloc[-1]
                     cmf_v = df['CMF'].iloc[-1]
@@ -481,9 +473,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                     vwma_v = df['VWMA_20'].iloc[-1]
                     
                     if avg_p >= 54 and adx_v >= 25 and cmf_v > 0 and macd_h > 0 and macd_h > macd_h_prev and price > vwma_v:
-                        rsi_v = df['RSI'].iloc[-1]
                         bb_status = "🔥 קפיץ דרוך" if bb_width < 0.10 else "🌊 תנועה רחבה"
-                        
                         opportunities.append({
                             "סימול": actual_ticker,
                             "מחיר": f"{curr}{price:.2f}",
@@ -500,19 +490,16 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         status_text.empty()
         
         if opportunities:
-            st.success(f"💎 הפילטר עבד! מתוך {len(target_list)} נכסים, נמצאו רק {len(opportunities)} יהלומים שמראים פריצה עכשיו.")
-            res_df = pd.DataFrame(opportunities)
-            st.dataframe(res_df, use_container_width=True)
-            
+            st.success(f"💎 הפילטר עבד! נמצאו {len(opportunities)} יהלומים שמראים פריצה עכשיו.")
+            st.dataframe(pd.DataFrame(opportunities), use_container_width=True)
             if st.button("📲 שלח התראות קנייה לטלגרם"):
                 msg = "💎 *יהלומים זוהו בצייד ההזדמנויות (VWMA מאושר):*\n\n"
                 for r in opportunities:
                     bb_alert = "(בסקוויז!)" if "קפיץ" in r["מצב בולינג'ר"] else ""
                     msg += f"🔥 *{r['סימול']}* {bb_alert}\nמחיר: {r['מחיר']} | AI: {r['ציון AI']} | MACD מאיץ\n"
-                success, res_msg = send_telegram_msg(tg_token, tg_chat_id, msg)
-                st.success(res_msg) if success else st.error(res_msg)
+                send_telegram_msg(tg_token, tg_chat_id, msg)
         else:
-            st.warning(f"הסריקה הסתיימה. הפילטר הנוקשה לא מצא אף מניה ב-{scan_group} שראויה לתואר 'יהלום' כרגע. השוק חלש היום.")
+            st.warning("הסריקה הסתיימה. לא נמצאו יהלומים כרגע.")
 
 # --- 4. מצב ניהול תיק השקעות אישי ---
 elif app_mode == "💼 ניהול תיק השקעות":
@@ -525,8 +512,11 @@ elif app_mode == "💼 ניהול תיק השקעות":
         total_invested_usd = 0.0
         total_current_usd = 0.0
         
-        st.markdown("טוען נתונים חיים ומנתח בריאות מוסדית לכל הפוזיציות שלך...")
+        st.markdown("טוען נתונים חיים, מנתח בריאות מוסדית ובודק יעדי רווח/הפסד...")
         progress_bar = st.progress(0)
+        
+        # כדי לאפשר שמירת עדכונים בתיק (כמו ציון התראה שנשלחה)
+        portfolio_updated = False 
         
         for idx, trade in enumerate(st.session_state.portfolio):
             ticker = trade['ticker']
@@ -543,8 +533,8 @@ elif app_mode == "💼 ניהול תיק השקעות":
                     qty = trade['qty']
                     tp = trade['tp']
                     sl = trade['sl']
+                    alert_sent = trade.get('alert_sent', None) # בודק אם כבר שלחנו התראה
                     
-                    # חישוב ימים בעסקה
                     entry_date_obj = datetime.strptime(trade['entry_date'], "%Y-%m-%d")
                     days_in_trade = (datetime.now() - entry_date_obj).days
                     
@@ -553,25 +543,31 @@ elif app_mode == "💼 ניהול תיק השקעות":
                     delta_cash = current_val - invested
                     delta_pct = ((current_price / entry_price) - 1) * 100
                     
-                    # המרה פשוטה לדולרים לצורך חישוב סך התיק (הנחה גסה שמניה ישראלית מחולקת ב-3.7, ניתן לשפר בעתיד)
                     usd_invested = invested if curr == "$" else invested / 3.7
                     usd_current = current_val if curr == "$" else current_val / 3.7
-                    
                     total_invested_usd += usd_invested
                     total_current_usd += usd_current
                     
                     # מדד הבריאות המוסדי
-                    if current_price > vwma_v:
-                        health = "🟢 תקין (מעל תמיכה)"
-                    else:
-                        health = "🚨 כסף יוצא (שבר VWMA)"
+                    health = "🟢 תקין (מעל תמיכה)" if current_price > vwma_v else "🚨 כסף יוצא (שבר VWMA)"
                         
-                    # התראות יעדים
+                    # לוגיקת התראות יעדים אוטומטיות לטלגרם
                     alert = "⏳ פתוח"
                     if current_price >= tp:
                         alert = "🎯 יעד הושג! (Take Profit)"
+                        if alert_sent != 'tp':  # שולח רק אם לא שלח כבר
+                            msg = f"🎯 *Take Profit!*\nהמניה *{actual_ticker}* הגיעה ליעד הרווח שלך!\nמחיר כניסה: {curr}{entry_price:.2f}\nמחיר נוכחי: {curr}{current_price:.2f}\nיעד מוגדר: {curr}{tp:.2f}\nקח את הכסף הביתה 💰"
+                            send_telegram_msg(tg_token, tg_chat_id, msg)
+                            trade['alert_sent'] = 'tp'
+                            portfolio_updated = True
+                            
                     elif current_price <= sl:
                         alert = "🛑 חתוך! (Stop Loss)"
+                        if alert_sent != 'sl': # שולח רק אם לא שלח כבר
+                            msg = f"🛑 *Stop Loss!*\nהמניה *{actual_ticker}* שברה את הסטופ לוס שלך.\nמחיר כניסה: {curr}{entry_price:.2f}\nמחיר נוכחי: {curr}{current_price:.2f}\nסטופ מוגדר: {curr}{sl:.2f}\nזמן לחתוך הפסדים ✂️"
+                            send_telegram_msg(tg_token, tg_chat_id, msg)
+                            trade['alert_sent'] = 'sl'
+                            portfolio_updated = True
                     
                     portfolio_data.append({
                         "סימול": actual_ticker,
@@ -589,6 +585,10 @@ elif app_mode == "💼 ניהול תיק השקעות":
         
         progress_bar.empty()
         
+        # שמירת המידע בקובץ אם נשלחו התראות חדשות (כדי שהבוט לא ישלח אותן שוב בריענון הבא)
+        if portfolio_updated:
+            save_json_file(PORTFOLIO_FILE, st.session_state.portfolio)
+        
         # סיכום למעלה
         total_pnl_usd = total_current_usd - total_invested_usd
         total_pnl_pct = (total_current_usd / total_invested_usd - 1) * 100 if total_invested_usd > 0 else 0
@@ -603,7 +603,6 @@ elif app_mode == "💼 ניהול תיק השקעות":
             df_port = pd.DataFrame(portfolio_data)
             st.dataframe(df_port, use_container_width=True)
             
-            # אפשרות סגירת עסקה (מחיקה מהתיק)
             st.markdown("---")
             st.subheader("סגירת פוזיציה")
             trade_to_remove = st.selectbox("בחר סימול למחיקה מהתיק לאחר סגירת העסקה:", ["-- בחר --"] + [t['ticker'] for t in st.session_state.portfolio])

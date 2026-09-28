@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 import random
-import concurrent.futures  # הספריה החדשה שתריץ הכל במקביל!
+import concurrent.futures
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -43,19 +43,31 @@ def get_stock_universe():
     israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-    fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'BRK-B', 'LLY', 'AVGO']
     
     try:
-        headers = {'User-Agent': 'AIStockPro/2.0'}
+        # ניסיון 1: משיכת כל 10,000 המניות מה-SEC
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         url = 'https://www.sec.gov/files/company_tickers.json'
-        res = requests.get(url, headers=headers, timeout=10)
+        res = requests.get(url, headers=headers, timeout=5)
         data = res.json()
         sec_tickers = [item['ticker'] for item in data.values()]
         massive_universe = sorted(list(set(sec_tickers + all_thematic + israeli_stocks + etfs)))
         return massive_universe, sec_tickers, israeli_stocks
     except Exception:
-        massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
-        return massive_universe, fallback_list, israeli_stocks
+        # ניסיון 2 (רשת ביטחון משודרגת!): אם ה-SEC חסם, מושכים 1,500 מניות מויקיפדיה
+        try:
+            sp500 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]['Symbol'].tolist()
+            sp400 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_400_companies')[0]['Symbol'].tolist()
+            sp600 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_600_companies')[0]['Symbol'].tolist()
+            elite_1500 = list(set(sp500 + sp400 + sp600))
+            elite_1500 = [s.replace('.', '-') for s in elite_1500]
+            massive_universe = sorted(list(set(elite_1500 + all_thematic + israeli_stocks + etfs)))
+            return massive_universe, elite_1500, israeli_stocks
+        except Exception:
+            # רק במקרה של קריסת רשת מוחלטת נחזור למניות הבוטיק שלנו
+            fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META']
+            massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
+            return massive_universe, fallback_list, israeli_stocks
 
 WATCHLIST_FILE = "watchlist.json"
 PORTFOLIO_FILE = "portfolio.json"

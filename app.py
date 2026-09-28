@@ -10,10 +10,11 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import time
+from datetime import datetime
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="AI Stock Analytics Pro - Ultimate Edition", page_icon="💎", layout="wide")
+st.set_page_config(page_title="AI Stock Analytics Pro - Command Center", page_icon="💎", layout="wide")
 
 THEMATIC_TICKERS = {
     "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
@@ -40,7 +41,6 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
-    # רשימת גיבוי קומפקטית כדי למנוע קריסות ותקלות קוד
     fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA', 'BRK-B', 'LLY', 'AVGO', 'JPM', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD']
     
     try:
@@ -56,28 +56,31 @@ def get_stock_universe():
         return massive_universe, fallback_list, israeli_stocks
 
 WATCHLIST_FILE = "watchlist.json"
+PORTFOLIO_FILE = "portfolio.json"
 DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'BTC-USD', 'NVDA', 'LEUMI.TA', 'TSLA']
 
-def load_watchlist():
-    if os.path.exists(WATCHLIST_FILE):
+def load_json_file(filepath, default_value):
+    if os.path.exists(filepath):
         try:
-            with open(WATCHLIST_FILE, "r", encoding="utf-8") as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if isinstance(data, list) and len(data) > 0:
+                if isinstance(data, list):
                     return data
         except Exception:
             pass
-    return DEFAULT_WATCHLIST.copy()
+    return default_value.copy()
 
-def save_watchlist(watchlist):
+def save_json_file(filepath, data):
     try:
-        with open(WATCHLIST_FILE, "w", encoding="utf-8") as f:
-            json.dump(watchlist, f, ensure_ascii=False, indent=2)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        st.error(f"שגיאה בשמירת הרשימה לקובץ: {e}")
+        st.error(f"שגיאה בשמירת הקובץ {filepath}: {e}")
 
 if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = load_watchlist()
+    st.session_state.watchlist = load_json_file(WATCHLIST_FILE, DEFAULT_WATCHLIST)
+if 'portfolio' not in st.session_state:
+    st.session_state.portfolio = load_json_file(PORTFOLIO_FILE, [])
 
 def send_telegram_msg(bot_token, chat_id, text):
     if not bot_token or not chat_id:
@@ -179,7 +182,6 @@ def process_features_and_model(df):
     df['SMA_20'] = df['Close'].rolling(20).mean()
     df['SMA_50'] = df['Close'].rolling(50).mean()
     
-    # VWMA - ממוצע נע משוקלל נפח (20 יום)
     df['VWMA_20'] = (df['Close'] * df['Volume']).rolling(20).sum() / (df['Volume'].rolling(20).sum() + 1e-8)
     
     df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
@@ -279,7 +281,7 @@ def process_features_and_model(df):
 all_tickers, us_stocks, israeli_stocks = get_stock_universe()
 
 st.sidebar.title("🎮 מצבי עבודה")
-app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק"])
+app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק", "💼 ניהול תיק השקעות"])
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ ניהול רשימת מעקב")
@@ -288,14 +290,14 @@ new_ticker_man = st.sidebar.text_input("הקלד סימול מניה להוספ�
 if st.sidebar.button("➕ הוסף לרשימה"):
     if new_ticker_man and new_ticker_man not in st.session_state.watchlist:
         st.session_state.watchlist.append(new_ticker_man)
-        save_watchlist(st.session_state.watchlist)
+        save_json_file(WATCHLIST_FILE, st.session_state.watchlist)
         st.sidebar.success(f"התווספה ונשמרה: {new_ticker_man}")
         st.rerun()
 
 remove_ticker = st.sidebar.selectbox("הסר מניה מהרשימה:", ["-- בחר --"] + st.session_state.watchlist)
 if st.sidebar.button("🗑️ הסר מהרשימה") and remove_ticker != "-- בחר --":
     st.session_state.watchlist.remove(remove_ticker)
-    save_watchlist(st.session_state.watchlist)
+    save_json_file(WATCHLIST_FILE, st.session_state.watchlist)
     st.sidebar.warning(f"הוסרה ונשמרה: {remove_ticker}")
     st.rerun()
 
@@ -386,6 +388,29 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 fig.update_layout(height=950, xaxis_rangeslider_visible=False, showlegend=True)
                 st.plotly_chart(fig, use_container_width=True)
 
+                st.markdown("---")
+                st.subheader("💼 הוסף לתיק ההשקעות האישי")
+                with st.form("add_to_portfolio_form"):
+                    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+                    entry_date = col_f1.date_input("תאריך כניסה", datetime.today())
+                    qty = col_f2.number_input("כמות מניות", min_value=0.01, value=10.0, step=1.0)
+                    tp = col_f3.number_input("יעד רווח (TP)", min_value=0.0, value=current_price*1.1, step=0.5)
+                    sl = col_f4.number_input("קטיעת הפסד (SL)", min_value=0.0, value=current_price*0.9, step=0.5)
+                    
+                    submitted = st.form_submit_button("➕ תעד עסקה בתיק")
+                    if submitted:
+                        new_trade = {
+                            "ticker": actual_ticker,
+                            "entry_date": entry_date.strftime("%Y-%m-%d"),
+                            "entry_price": current_price,
+                            "qty": qty,
+                            "tp": tp,
+                            "sl": sl
+                        }
+                        st.session_state.portfolio.append(new_trade)
+                        save_json_file(PORTFOLIO_FILE, st.session_state.portfolio)
+                        st.success(f"העסקה עבור {actual_ticker} נשמרה בהצלחה בתיק ההשקעות! 💼")
+
 # --- 2. מצב רשימת מעקב ---
 elif app_mode == "📋 סורק רשימת מעקב":
     st.title("📋 סורק רשימת מעקב")
@@ -420,7 +445,7 @@ elif app_mode == "📋 סורק רשימת מעקב":
                 st.success(res_msg) if success else st.error(res_msg)
 
 # --- 3. צייד הזדמנויות שוק (הסורק האכזרי) ---
-else:
+elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode)")
     st.markdown("סריקה חסרת רחמים. מניות מתקבלות רק אם: מגמה חזקה (ADX>25), כניסת כסף (CMF>0), הסתברות AI>54%, פריצת MACD מאיצה, **ושהמחיר מעל קו המוסדיים (VWMA)**.")
     
@@ -441,9 +466,7 @@ else:
         
         for idx, ticker in enumerate(target_list):
             status_text.text(f"מנתח את {ticker} ({idx+1}/{len(target_list)})...")
-            
             time.sleep(0.25)
-            
             df, curr, actual_ticker = fetch_live_data(ticker)
             if df is not None:
                 processed = process_features_and_model(df)
@@ -490,3 +513,102 @@ else:
                 st.success(res_msg) if success else st.error(res_msg)
         else:
             st.warning(f"הסריקה הסתיימה. הפילטר הנוקשה לא מצא אף מניה ב-{scan_group} שראויה לתואר 'יהלום' כרגע. השוק חלש היום.")
+
+# --- 4. מצב ניהול תיק השקעות אישי ---
+elif app_mode == "💼 ניהול תיק השקעות":
+    st.title("💼 תחנת פיקוד: תיק השקעות וניטור בריאות")
+    
+    if not st.session_state.portfolio:
+        st.info("התיק שלך ריק כרגע. תוכל להוסיף עסקאות דרך לשונית 'ניתוח מניה בודדת'.")
+    else:
+        portfolio_data = []
+        total_invested_usd = 0.0
+        total_current_usd = 0.0
+        
+        st.markdown("טוען נתונים חיים ומנתח בריאות מוסדית לכל הפוזיציות שלך...")
+        progress_bar = st.progress(0)
+        
+        for idx, trade in enumerate(st.session_state.portfolio):
+            ticker = trade['ticker']
+            df, curr, actual_ticker = fetch_live_data(ticker)
+            
+            if df is not None:
+                processed = process_features_and_model(df)
+                if processed[0] is not None:
+                    df = processed[0]
+                    current_price = df['Close'].iloc[-1]
+                    vwma_v = df['VWMA_20'].iloc[-1]
+                    
+                    entry_price = trade['entry_price']
+                    qty = trade['qty']
+                    tp = trade['tp']
+                    sl = trade['sl']
+                    
+                    # חישוב ימים בעסקה
+                    entry_date_obj = datetime.strptime(trade['entry_date'], "%Y-%m-%d")
+                    days_in_trade = (datetime.now() - entry_date_obj).days
+                    
+                    invested = entry_price * qty
+                    current_val = current_price * qty
+                    delta_cash = current_val - invested
+                    delta_pct = ((current_price / entry_price) - 1) * 100
+                    
+                    # המרה פשוטה לדולרים לצורך חישוב סך התיק (הנחה גסה שמניה ישראלית מחולקת ב-3.7, ניתן לשפר בעתיד)
+                    usd_invested = invested if curr == "$" else invested / 3.7
+                    usd_current = current_val if curr == "$" else current_val / 3.7
+                    
+                    total_invested_usd += usd_invested
+                    total_current_usd += usd_current
+                    
+                    # מדד הבריאות המוסדי
+                    if current_price > vwma_v:
+                        health = "🟢 תקין (מעל תמיכה)"
+                    else:
+                        health = "🚨 כסף יוצא (שבר VWMA)"
+                        
+                    # התראות יעדים
+                    alert = "⏳ פתוח"
+                    if current_price >= tp:
+                        alert = "🎯 יעד הושג! (Take Profit)"
+                    elif current_price <= sl:
+                        alert = "🛑 חתוך! (Stop Loss)"
+                    
+                    portfolio_data.append({
+                        "סימול": actual_ticker,
+                        "תאריך": trade['entry_date'],
+                        "ימים": days_in_trade,
+                        "כמות": qty,
+                        "שער כניסה": f"{curr}{entry_price:.2f}",
+                        "שער נוכחי": f"{curr}{current_price:.2f}",
+                        "רווח/הפסד": f"{curr}{delta_cash:+.2f}",
+                        "תשואה (%)": f"{delta_pct:+.2f}%",
+                        "סטטוס מוסדי": health,
+                        "התראה": alert
+                    })
+            progress_bar.progress((idx + 1) / len(st.session_state.portfolio))
+        
+        progress_bar.empty()
+        
+        # סיכום למעלה
+        total_pnl_usd = total_current_usd - total_invested_usd
+        total_pnl_pct = (total_current_usd / total_invested_usd - 1) * 100 if total_invested_usd > 0 else 0
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("סה\"כ השקעה בתיק (מוערך בדולר)", f"${total_invested_usd:,.2f}")
+        c2.metric("שווי נוכחי (מוערך בדולר)", f"${total_current_usd:,.2f}")
+        c3.metric("רווח/הפסד פתוח (P&L)", f"${total_pnl_usd:,.2f} ({total_pnl_pct:+.2f}%)")
+        
+        st.markdown("### הפירוט המלא")
+        if portfolio_data:
+            df_port = pd.DataFrame(portfolio_data)
+            st.dataframe(df_port, use_container_width=True)
+            
+            # אפשרות סגירת עסקה (מחיקה מהתיק)
+            st.markdown("---")
+            st.subheader("סגירת פוזיציה")
+            trade_to_remove = st.selectbox("בחר סימול למחיקה מהתיק לאחר סגירת העסקה:", ["-- בחר --"] + [t['ticker'] for t in st.session_state.portfolio])
+            if st.button("🗑️ סגור עסקה ומחק מהתיק") and trade_to_remove != "-- בחר --":
+                st.session_state.portfolio = [t for t in st.session_state.portfolio if t['ticker'] != trade_to_remove]
+                save_json_file(PORTFOLIO_FILE, st.session_state.portfolio)
+                st.success(f"הפוזיציה על {trade_to_remove} נסגרה והוסרה מהתיק.")
+                st.rerun()

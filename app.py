@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import time
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -281,6 +282,14 @@ st.sidebar.title("🎮 מצבי עבודה")
 app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק", "💼 ניהול תיק השקעות"])
 
 st.sidebar.markdown("---")
+st.sidebar.header("⏰ טייס אוטומטי (מניעת תרדמת)")
+auto_refresh_enabled = st.sidebar.checkbox("הפעל רענון ברקע (מונע תרדמת)", value=False)
+if auto_refresh_enabled:
+    refresh_interval = st.sidebar.slider("רענן ובדוק עסקאות כל (דקות):", 1, 30, 5)
+    st_autorefresh(interval=refresh_interval * 60 * 1000, key="auto_refresh_timer")
+    st.sidebar.success(f"✅ טייס אוטומטי פועל: המערכת סורקת כל {refresh_interval} דקות.")
+
+st.sidebar.markdown("---")
 st.sidebar.header("⚙️ ניהול רשימת מעקב")
 new_ticker_man = st.sidebar.text_input("הקלד סימול מניה להוספה (למשל AAPL):").strip().upper()
 
@@ -403,7 +412,7 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                             "qty": qty,
                             "tp": tp,
                             "sl": sl,
-                            "alert_sent": None  # שדה מעקב אחרי התראות
+                            "alert_sent": None 
                         }
                         st.session_state.portfolio.append(new_trade)
                         save_json_file(PORTFOLIO_FILE, st.session_state.portfolio)
@@ -515,7 +524,6 @@ elif app_mode == "💼 ניהול תיק השקעות":
         st.markdown("טוען נתונים חיים, מנתח בריאות מוסדית ובודק יעדי רווח/הפסד...")
         progress_bar = st.progress(0)
         
-        # כדי לאפשר שמירת עדכונים בתיק (כמו ציון התראה שנשלחה)
         portfolio_updated = False 
         
         for idx, trade in enumerate(st.session_state.portfolio):
@@ -533,7 +541,7 @@ elif app_mode == "💼 ניהול תיק השקעות":
                     qty = trade['qty']
                     tp = trade['tp']
                     sl = trade['sl']
-                    alert_sent = trade.get('alert_sent', None) # בודק אם כבר שלחנו התראה
+                    alert_sent = trade.get('alert_sent', None)
                     
                     entry_date_obj = datetime.strptime(trade['entry_date'], "%Y-%m-%d")
                     days_in_trade = (datetime.now() - entry_date_obj).days
@@ -548,14 +556,12 @@ elif app_mode == "💼 ניהול תיק השקעות":
                     total_invested_usd += usd_invested
                     total_current_usd += usd_current
                     
-                    # מדד הבריאות המוסדי
                     health = "🟢 תקין (מעל תמיכה)" if current_price > vwma_v else "🚨 כסף יוצא (שבר VWMA)"
                         
-                    # לוגיקת התראות יעדים אוטומטיות לטלגרם
                     alert = "⏳ פתוח"
                     if current_price >= tp:
                         alert = "🎯 יעד הושג! (Take Profit)"
-                        if alert_sent != 'tp':  # שולח רק אם לא שלח כבר
+                        if alert_sent != 'tp': 
                             msg = f"🎯 *Take Profit!*\nהמניה *{actual_ticker}* הגיעה ליעד הרווח שלך!\nמחיר כניסה: {curr}{entry_price:.2f}\nמחיר נוכחי: {curr}{current_price:.2f}\nיעד מוגדר: {curr}{tp:.2f}\nקח את הכסף הביתה 💰"
                             send_telegram_msg(tg_token, tg_chat_id, msg)
                             trade['alert_sent'] = 'tp'
@@ -563,7 +569,7 @@ elif app_mode == "💼 ניהול תיק השקעות":
                             
                     elif current_price <= sl:
                         alert = "🛑 חתוך! (Stop Loss)"
-                        if alert_sent != 'sl': # שולח רק אם לא שלח כבר
+                        if alert_sent != 'sl': 
                             msg = f"🛑 *Stop Loss!*\nהמניה *{actual_ticker}* שברה את הסטופ לוס שלך.\nמחיר כניסה: {curr}{entry_price:.2f}\nמחיר נוכחי: {curr}{current_price:.2f}\nסטופ מוגדר: {curr}{sl:.2f}\nזמן לחתוך הפסדים ✂️"
                             send_telegram_msg(tg_token, tg_chat_id, msg)
                             trade['alert_sent'] = 'sl'
@@ -585,11 +591,9 @@ elif app_mode == "💼 ניהול תיק השקעות":
         
         progress_bar.empty()
         
-        # שמירת המידע בקובץ אם נשלחו התראות חדשות (כדי שהבוט לא ישלח אותן שוב בריענון הבא)
         if portfolio_updated:
             save_json_file(PORTFOLIO_FILE, st.session_state.portfolio)
         
-        # סיכום למעלה
         total_pnl_usd = total_current_usd - total_invested_usd
         total_pnl_pct = (total_current_usd / total_invested_usd - 1) * 100 if total_invested_usd > 0 else 0
         

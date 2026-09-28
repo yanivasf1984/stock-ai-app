@@ -44,30 +44,33 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
+    # 1. ניסיון לפרוץ ל-SEC עם תעודת זהות נוקשה בדיוק כמו שהם דורשים!
     try:
-        # ניסיון 1: משיכת כל 10,000 המניות מה-SEC
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {'User-Agent': 'AI_Stock_Hunter mytradingapp@gmail.com'}
         url = 'https://www.sec.gov/files/company_tickers.json'
-        res = requests.get(url, headers=headers, timeout=5)
-        data = res.json()
-        sec_tickers = [item['ticker'] for item in data.values()]
-        massive_universe = sorted(list(set(sec_tickers + all_thematic + israeli_stocks + etfs)))
-        return massive_universe, sec_tickers, israeli_stocks
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            sec_tickers = [item['ticker'] for item in data.values()]
+            massive_universe = sorted(list(set(sec_tickers + all_thematic + israeli_stocks + etfs)))
+            return massive_universe, sec_tickers, israeli_stocks
     except Exception:
-        # ניסיון 2 (רשת ביטחון משודרגת!): אם ה-SEC חסם, מושכים 1,500 מניות מויקיפדיה
-        try:
-            sp500 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]['Symbol'].tolist()
-            sp400 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_400_companies')[0]['Symbol'].tolist()
-            sp600 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_600_companies')[0]['Symbol'].tolist()
-            elite_1500 = list(set(sp500 + sp400 + sp600))
-            elite_1500 = [s.replace('.', '-') for s in elite_1500]
-            massive_universe = sorted(list(set(elite_1500 + all_thematic + israeli_stocks + etfs)))
-            return massive_universe, elite_1500, israeli_stocks
-        except Exception:
-            # רק במקרה של קריסת רשת מוחלטת נחזור למניות הבוטיק שלנו
-            fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META']
-            massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
-            return massive_universe, fallback_list, israeli_stocks
+        pass
+
+    # 2. גיבוי מפלדה (בלי ויקיפדיה) - שאיבת קובץ CSV ישירות מ-GitHub
+    try:
+        sp500_df = pd.read_csv('https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv')
+        sp500_tickers = sp500_df['Symbol'].tolist()
+        sp500_tickers = [str(s).replace('.', '-') for s in sp500_tickers]
+        massive_universe = sorted(list(set(sp500_tickers + all_thematic + israeli_stocks + etfs)))
+        return massive_universe, sp500_tickers, israeli_stocks
+    except Exception:
+        pass
+
+    # 3. גיבוי אחרון בהחלט אם אין אינטרנט או ששני השרתים נפלו
+    fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']
+    massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
+    return massive_universe, fallback_list, israeli_stocks
 
 WATCHLIST_FILE = "watchlist.json"
 PORTFOLIO_FILE = "portfolio.json"
@@ -104,7 +107,7 @@ def send_telegram_msg(bot_token, chat_id, text):
     try:
         res = requests.post(url, json=payload, timeout=5)
         if res.status_code == 200: return True, "התראה נשלחה!"
-        return False, f"שגיאה: {res.text}"
+        return False, f"שגיאה מהשרת: {res.text}"
     except Exception as e:
         return False, str(e)
 
@@ -250,7 +253,7 @@ st.sidebar.title("🎮 מצבי עבודה")
 app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק", "💼 ניהול תיק השקעות"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("⏰ טייס אוטומטי (מניעת תרדמת)")
+st.sidebar.header("⏰ טייס אוטומטי")
 auto_refresh_enabled = st.sidebar.checkbox("הפעל רענון ברקע", value=False)
 if auto_refresh_enabled:
     refresh_interval = st.sidebar.slider("דקות:", 1, 30, 5)
@@ -418,9 +421,8 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - MultiThreaded)")
     st.markdown("מחפש מניות שעוברות את כל מבחני הכוח. **מריץ 10 סריקות במקביל לביצועים מקסימליים!**")
     
-    scan_group = st.selectbox("בחר קטגוריה לסריקה:", ["הכל (רדאר מסתובב: 1,500 מניות אקראיות מכלל השוק)"] + list(THEMATIC_TICKERS.keys()))
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק אקראית מתוך מאגר של {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
     
-    # פונקציית העזר לפועלים המקבילים
     def process_single_ticker(ticker):
         try:
             df, curr, actual_ticker = fetch_live_data(ticker)
@@ -445,9 +447,9 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         return None
 
     if st.button("🔎 התחל בסריקת צלף מקבילית"):
-        if scan_group == "הכל (רדאר מסתובב: 1,500 מניות אקראיות מכלל השוק)":
+        if "רדאר מסתובב" in scan_group:
             target_list = random.sample(all_tickers, min(1500, len(all_tickers)))
-            st.info("🎲 מגריל כעת 1,500 מניות חדשות לבדיקה (עיבוד מקבילי)...")
+            st.info("🎲 מגריל כעת מניות חדשות לבדיקה (עיבוד מקבילי)...")
         else:
             target_list = THEMATIC_TICKERS[scan_group]
             
@@ -455,7 +457,6 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # הרצת סריקה עם 10 חוטים (Threads) במקביל!
         completed = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             future_to_ticker = {executor.submit(process_single_ticker, ticker): ticker for ticker in target_list}
@@ -463,7 +464,6 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                 completed += 1
                 ticker = future_to_ticker[future]
                 
-                # מעדכן את ממשק המשתמש כל 10 מניות כדי לא להעמיס על הדפדפן
                 if completed % 10 == 0 or completed == len(target_list):
                     status_text.text(f"⚡ מנתח במקביל... השלים {completed}/{len(target_list)} מניות (אחרון: {ticker})")
                     progress_bar.progress(completed / len(target_list))

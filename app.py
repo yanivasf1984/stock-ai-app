@@ -69,8 +69,10 @@ def get_stock_universe():
     massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
     return massive_universe, fallback_list, israeli_stocks
 
-WATCHLIST_FILE = "watchlist.json"
-PORTFOLIO_FILE = "portfolio.json"
+# מוצא את התיקייה המדויקת שבה יושב הקוד שלנו, כדי שהשמירה תמיד תהיה לידו
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.json")
+PORTFOLIO_FILE = os.path.join(BASE_DIR, "portfolio.json")
 DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'BTC-USD', 'NVDA', 'LEUMI.TA', 'TSLA']
 
 def load_json_file(filepath, default_value):

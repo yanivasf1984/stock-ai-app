@@ -106,7 +106,7 @@ def fetch_yahoo_chart(ticker):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # זמן המתנה קוצר ל-3 שניות לטובת ביצועי טורבו
+        # זמן המתנה קוצר ל-3 שניות לטובת ביצועים - נכשל מהר אם אין נתונים
         response = requests.get(url, headers=headers, verify=False, timeout=3)
         if response.status_code == 200:
             return response.json().get('chart', {}).get('result')
@@ -118,7 +118,7 @@ def fetch_yahoo_chart(ticker):
 def fetch_live_data(raw_ticker):
     ticker = raw_ticker.strip().upper()
     
-    # ייעול: לא מחפשים סיומת TA למניות שלא הוגדרו כישראליות (חוסך זמן יקר בסריקה)
+    # ייעול: לא מחפשים סיומת TA למניות שלא הוגדרו כישראליות (חוסך זמן בסריקה)
     is_israeli = ticker in THEMATIC_TICKERS["קרנות ישראליות"] or ticker.endswith('.TA')
     if is_israeli:
         tickers_to_try = [ticker] if ticker.endswith('.TA') else [f"{ticker}.TA"]
@@ -409,7 +409,7 @@ elif app_mode == "📋 סורק רשימת מעקב":
 
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - BLINK Edition)")
-    st.markdown("סורק מניות מובילות בלבד (S&P 500) התואמות לפלטפורמת BLINK. **מריץ סריקות במקביל עם מנוע טורבו (30 פועלים)!**")
+    st.markdown("סורק מניות מובילות בלבד (S&P 500) התואמות לפלטפורמת BLINK. **הסריקה פועלת בקצב מאוזן שעוקף חסימות שרת!**")
     
     if 'last_scan_results' not in st.session_state:
         st.session_state.last_scan_results = None
@@ -439,7 +439,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
             pass
         return None
 
-    if st.button("🔎 התחל בסריקת צלף מקבילית (טורבו)"):
+    if st.button("🔎 התחל בסריקת צלף מקבילית"):
         if "רדאר מסתובב" in scan_group:
             target_list = all_tickers
             st.info(f"⚡ סורק כעת במקביל את כל {len(target_list)} המניות (מותאם BLINK)...")
@@ -451,15 +451,15 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         status_text = st.empty()
         
         completed = 0
-        # מנוע טורבו: 30 סורקים במקביל
-        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+        # הוחזר ל-10 סורקים במקביל כדי למנוע חסימות מיאהו פיננסים ולרוץ חלק
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             future_to_ticker = {executor.submit(process_single_ticker, ticker): ticker for ticker in target_list}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 completed += 1
                 ticker = future_to_ticker[future]
                 
                 if completed % 10 == 0 or completed == len(target_list):
-                    status_text.text(f"⚡ מנתח במקביל בטורבו... השלים {completed}/{len(target_list)} מניות (אחרון: {ticker})")
+                    status_text.text(f"⚡ מנתח במקביל... השלים {completed}/{len(target_list)} מניות (אחרון: {ticker})")
                     progress_bar.progress(completed / len(target_list))
                 
                 res = future.result()

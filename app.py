@@ -6,6 +6,7 @@ import requests
 import pandas as pd
 import numpy as np
 import streamlit as st
+import yfinance as yf
 from sklearn.ensemble import HistGradientBoostingClassifier
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -51,7 +52,7 @@ def get_stock_universe():
             data = res.json()
             sec_tickers = [item['ticker'] for item in data.values()]
             
-            # הסינון היחיד שהשארנו: רק מניות חוקיות שמתאימות ל-BLINK (עד 4 אותיות, בלי זבל)
+            # פילטר BLINK
             blink_safe_tickers = [t for t in sec_tickers if t.isalpha() and len(t) <= 4]
             massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
             
@@ -105,18 +106,7 @@ def send_telegram_msg(bot_token, chat_id, text):
     except Exception as e:
         return False, str(e)
 
-def fetch_yahoo_chart(ticker):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        # חזרנו ל-8 שניות המתנה האמינות והטובות של אתמול
-        response = requests.get(url, headers=headers, verify=False, timeout=8)
-        if response.status_code == 200:
-            return response.json().get('chart', {}).get('result')
-    except Exception:
-        pass
-    return None
-
+# שימוש בספריית yfinance היציבה במקום בקשות ישירות שנחסמות
 @st.cache_data(ttl=1800)
 def fetch_live_data(raw_ticker):
     ticker = raw_ticker.strip().upper()
@@ -126,48 +116,49 @@ def fetch_live_data(raw_ticker):
     else:
         tickers_to_try = [ticker, ticker.replace('.', '-')]
 
-    result = None
+    df = None
     successful_ticker = None
 
     for t in tickers_to_try:
-        result = fetch_yahoo_chart(t)
-        if result and len(result) > 0:
-            successful_ticker = t
-            break
+        try:
+            stock = yf.Ticker(t)
+            temp_df = stock.history(period="2y")
+            if temp_df is not None and not temp_df.empty and len(temp_df) > 60:
+                df = temp_df
+                successful_ticker = t
+                break
+        except Exception:
+            continue
 
-    if not result or 'timestamp' not in result[0] or not result[0]['timestamp']:
+    if df is None or df.empty:
         return None, None, None
 
-    meta = result[0]['meta']
-    currency_code = meta.get('currency', 'USD')
-    timestamps = result[0]['timestamp']
-    quote = result[0]['indicators']['quote'][0]
+    # סידור הנתונים כך שיתאימו למערכת שלנו
+    df.reset_index(inplace=True)
+    if 'Date' not in df.columns and 'Datetime' in df.columns:
+        df = df.rename(columns={'Datetime': 'Date'})
     
-    df = pd.DataFrame({
-        'Date': pd.to_datetime(timestamps, unit='s'),
-        'Open': quote.get('open'), 'Close': quote.get('close'),
-        'High': quote.get('high'), 'Low': quote.get('low'), 'Volume': quote.get('volume')
-    }).dropna()
-    
-    if len(df) < 60: return None, None, None
+    # ניקוי אזורי זמן כדי למנוע התנגשויות
+    df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
 
-    # חזרנו לדרך הבטוחה של אתמול לשלוף את ה-S&P 500
-    sp500_result = fetch_yahoo_chart('^GSPC')
-    if sp500_result and 'timestamp' in sp500_result[0]:
-        df_sp = pd.DataFrame({
-            'Date': pd.to_datetime(sp500_result[0]['timestamp'], unit='s'),
-            'SP500_Close': sp500_result[0]['indicators']['quote'][0]['close']
-        }).dropna()
-        df = pd.merge(df, df_sp, on='Date', how='left').ffill()
-    else:
+    # הבאת נתוני S&P 500 דרך yfinance
+    try:
+        sp500 = yf.Ticker('^GSPC').history(period="2y")
+        sp500.reset_index(inplace=True)
+        sp500['Date'] = pd.to_datetime(sp500['Date']).dt.tz_localize(None)
+        sp500 = sp500[['Date', 'Close']].rename(columns={'Close': 'SP500_Close'})
+        df = pd.merge(df, sp500, on='Date', how='left').ffill()
+    except Exception:
         df['SP500_Close'] = df['Close']
 
-    if currency_code in ['ILA', 'ILS']:
-        if currency_code == 'ILA':
-            df[['Open', 'Close', 'High', 'Low']] /= 100
+    # טיפול במטבעות
+    curr = "$"
+    if is_israeli or (successful_ticker and successful_ticker.endswith('.TA')):
         curr = "₪"
-    else: curr = "$"
-        
+        # תיקון מניות שנסחרות באגורות במקום שקלים
+        if df['Close'].mean() > 100:
+            df[['Open', 'High', 'Low', 'Close']] = df[['Open', 'High', 'Low', 'Close']] / 100
+            
     return df, curr, successful_ticker
 
 def process_features_and_model(df):
@@ -293,7 +284,7 @@ if app_mode == "🔍 ניתוח מניה בודדת":
             df, curr, actual_ticker = fetch_live_data(target_ticker)
             
         if df is None:
-            st.error(f"לא נשלפו נתונים עבור '{target_ticker}'.")
+            st.error(f"לא נשלפו נתונים עבור '{target_ticker}'. ייתכן שיאהו פיננסים חסמו אותך זמנית בגלל עומס, נסה להתחבר דרך Hotspot מהטלפון.")
         else:
             processed = process_features_and_model(df)
             if processed[0] is not None:
@@ -453,8 +444,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         status_text = st.empty()
         
         completed = 0
-        # חזרנו ל-10 מנועים יציבים שעוברים חלק את יאהו
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             future_to_ticker = {executor.submit(process_single_ticker, ticker): ticker for ticker in target_list}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 completed += 1

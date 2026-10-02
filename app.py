@@ -16,7 +16,6 @@ import concurrent.futures
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# חייב להיות הפקודה הראשונה של Streamlit
 st.set_page_config(page_title="AI Stock Analytics Pro - BLINK Edition", page_icon="💎", layout="wide")
 
 THEMATIC_TICKERS = {
@@ -45,14 +44,22 @@ def get_stock_universe():
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
     try:
-        sp500_df = pd.read_csv('https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv')
-        blink_safe_tickers = sp500_df['Symbol'].tolist()
-        blink_safe_tickers = [str(s).replace('.', '-') for s in blink_safe_tickers]
-        massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
-        
-        if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
+        # שואב את כל עשרת אלפים המניות מה-SEC
+        headers = {'User-Agent': 'AI_Stock_Hunter mytradingapp@gmail.com'}
+        url = 'https://www.sec.gov/files/company_tickers.json'
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            sec_tickers = [item['ticker'] for item in data.values()]
             
-        return massive_universe, blink_safe_tickers, israeli_stocks
+            # פילטר BLINK: משאיר רק מניות עם אותיות בלבד, ועד 4 תווים. 
+            # זה מסנן אוטומטית 99% ממניות הפח וה-OTC שבלינק חוסמת!
+            blink_safe_tickers = [t for t in sec_tickers if t.isalpha() and len(t) <= 4]
+            
+            massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
+            if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
+                
+            return massive_universe, blink_safe_tickers, israeli_stocks
     except Exception:
         pass
 
@@ -105,14 +112,14 @@ def fetch_yahoo_chart(ticker):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        response = requests.get(url, headers=headers, verify=False, timeout=4)
+        response = requests.get(url, headers=headers, verify=False, timeout=3)
         if response.status_code == 200:
             return response.json().get('chart', {}).get('result')
     except Exception:
         pass
     return None
 
-# מונע כפילויות בפניות ליאהו - שומר את נתוני ה-S&P 500 בזיכרון (חסכון של 50% מהבקשות!)
+# טוען את ה-S&P 500 פעם אחת בלבד לשמירה על מהירות מטורפת
 @st.cache_data(ttl=1800)
 def get_sp500_df():
     res = fetch_yahoo_chart('^GSPC')
@@ -158,7 +165,6 @@ def fetch_live_data(raw_ticker):
     
     if len(df) < 60: return None, None, None
 
-    # שולפים מהזיכרון במקום ליצור פנייה חדשה ליאהו
     df_sp = get_sp500_df()
     if df_sp is not None:
         df = pd.merge(df, df_sp, on='Date', how='left').ffill()
@@ -414,12 +420,12 @@ elif app_mode == "📋 סורק רשימת מעקב":
 
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - BLINK Edition)")
-    st.markdown("סורק מניות מובילות בלבד התואמות לפלטפורמת BLINK. **עבר אופטימיזציה לחסכון בבקשות API ומהירות שיא!**")
+    st.markdown("מגריל 1500 מניות לסריקה מתוך מאגר ענק של מניות מובילות התואמות לאפליקציית BLINK.")
     
     if 'last_scan_results' not in st.session_state:
         st.session_state.last_scan_results = None
 
-    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק את כל {len(all_tickers)} המניות התואמות)"] + list(THEMATIC_TICKERS.keys()))
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: מגריל 1500 מניות מתוך מאגר של {len(all_tickers)})"] + list(THEMATIC_TICKERS.keys()))
     
     def process_single_ticker(ticker):
         try:
@@ -445,13 +451,13 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         return None
 
     if st.button("🔎 התחל בסריקת צלף מקבילית"):
-        # קוראים קודם ל-SP500 פעם אחת מראש, כדי שכל שאר המניות לא יתקעו!
-        with st.spinner("טוען מדדי בסיס (S&P 500)..."):
+        with st.spinner("טוען מדדי בסיס (S&P 500) להאצת הסריקה..."):
             get_sp500_df()
             
         if "רדאר מסתובב" in scan_group:
-            target_list = all_tickers
-            st.info(f"⚡ סורק כעת במקביל את כל {len(target_list)} המניות (מותאם BLINK)...")
+            # מגריל עד 1500 מניות מתוך המאגר החוקי המסונן ל-BLINK
+            target_list = random.sample(all_tickers, min(1500, len(all_tickers)))
+            st.info(f"🎲 מגריל כעת {len(target_list)} מניות מתוך המאגר המורחב (מסונן BLINK)...")
         else:
             target_list = THEMATIC_TICKERS[scan_group]
             
@@ -460,8 +466,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         status_text = st.empty()
         
         completed = 0
-        # מנוע מקבילי של 20 סורקים!
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
             future_to_ticker = {executor.submit(process_single_ticker, ticker): ticker for ticker in target_list}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 completed += 1

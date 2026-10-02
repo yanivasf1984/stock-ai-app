@@ -17,9 +17,9 @@ import concurrent.futures
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# חייב להיות הפקודה הראשונה של Streamlit
 st.set_page_config(page_title="AI Stock Analytics Pro - BLINK Edition", page_icon="💎", layout="wide")
 
-# רשימות מותאמות - הוסר קריפטו ישיר, נשארו רק תעודות סל שקיימות ב-BLINK
 THEMATIC_TICKERS = {
     "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
     "קריפטו (תעודות סל)": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
@@ -45,32 +45,26 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
-    # סינון BLINK: לא שואבים יותר עשרות אלפי מניות זבל מה-SEC.
-    # אנחנו שואבים רק את ה-S&P 500 הרשמי + הרשימות שלנו. כולן קיימות באפליקציות המסחר.
     try:
         sp500_df = pd.read_csv('https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv')
         blink_safe_tickers = sp500_df['Symbol'].tolist()
         blink_safe_tickers = [str(s).replace('.', '-') for s in blink_safe_tickers]
         massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
         
-        # מוודאים שקריפטו ישיר לא מסתנן פנימה בשום צורה
         if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
             
         return massive_universe, blink_safe_tickers, israeli_stocks
     except Exception:
         pass
 
-    # גיבוי
     fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']
     massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
     if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
     return massive_universe, fallback_list, israeli_stocks
 
-# הגדרת נתיב קבוע לשמירת קבצים - מונע מחיקת נתונים
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.json")
 PORTFOLIO_FILE = os.path.join(BASE_DIR, "portfolio.json")
-# רשימת מעקב התחלתית מעודכנת ל-BLINK (הוחלף BTC-USD ב-IBIT)
 DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'IBIT', 'NVDA', 'LEUMI.TA', 'TSLA']
 
 def load_json_file(filepath, default_value):
@@ -102,7 +96,7 @@ def send_telegram_msg(bot_token, chat_id, text):
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=5)
+        res = requests.post(url, json=payload, timeout=3)
         if res.status_code == 200: return True, "התראה נשלחה!"
         return False, f"שגיאה מהשרת: {res.text}"
     except Exception as e:
@@ -112,7 +106,8 @@ def fetch_yahoo_chart(ticker):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        response = requests.get(url, headers=headers, verify=False, timeout=8)
+        # זמן המתנה קוצר ל-3 שניות לטובת ביצועי טורבו
+        response = requests.get(url, headers=headers, verify=False, timeout=3)
         if response.status_code == 200:
             return response.json().get('chart', {}).get('result')
     except Exception:
@@ -122,7 +117,14 @@ def fetch_yahoo_chart(ticker):
 @st.cache_data(ttl=1800)
 def fetch_live_data(raw_ticker):
     ticker = raw_ticker.strip().upper()
-    tickers_to_try = [ticker, ticker.replace('.', '-'), f"{ticker}.TA"] if not ticker.endswith('.TA') else [ticker]
+    
+    # ייעול: לא מחפשים סיומת TA למניות שלא הוגדרו כישראליות (חוסך זמן יקר בסריקה)
+    is_israeli = ticker in THEMATIC_TICKERS["קרנות ישראליות"] or ticker.endswith('.TA')
+    if is_israeli:
+        tickers_to_try = [ticker] if ticker.endswith('.TA') else [f"{ticker}.TA"]
+    else:
+        tickers_to_try = [ticker, ticker.replace('.', '-')]
+
     result = None
     successful_ticker = None
 
@@ -407,12 +409,12 @@ elif app_mode == "📋 סורק רשימת מעקב":
 
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - BLINK Edition)")
-    st.markdown("סורק מניות מובילות בלבד (S&P 500) התואמות לפלטפורמת BLINK. **מריץ סריקות במקביל לביצועים מקסימליים!**")
+    st.markdown("סורק מניות מובילות בלבד (S&P 500) התואמות לפלטפורמת BLINK. **מריץ סריקות במקביל עם מנוע טורבו (30 פועלים)!**")
     
     if 'last_scan_results' not in st.session_state:
         st.session_state.last_scan_results = None
 
-    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק מתוך מאגר BLINK של {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק את כל {len(all_tickers)} המניות התואמות)"] + list(THEMATIC_TICKERS.keys()))
     
     def process_single_ticker(ticker):
         try:
@@ -437,11 +439,10 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
             pass
         return None
 
-    if st.button("🔎 התחל בסריקת צלף מקבילית"):
+    if st.button("🔎 התחל בסריקת צלף מקבילית (טורבו)"):
         if "רדאר מסתובב" in scan_group:
-            # מגריל מתוך המאגר המצומצם והאיכותי
-            target_list = random.sample(all_tickers, min(len(all_tickers), 1500))
-            st.info(f"🎲 מגריל כעת {len(target_list)} מניות תואמות BLINK לבדיקה...")
+            target_list = all_tickers
+            st.info(f"⚡ סורק כעת במקביל את כל {len(target_list)} המניות (מותאם BLINK)...")
         else:
             target_list = THEMATIC_TICKERS[scan_group]
             
@@ -450,14 +451,15 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         status_text = st.empty()
         
         completed = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # מנוע טורבו: 30 סורקים במקביל
+        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
             future_to_ticker = {executor.submit(process_single_ticker, ticker): ticker for ticker in target_list}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 completed += 1
                 ticker = future_to_ticker[future]
                 
                 if completed % 10 == 0 or completed == len(target_list):
-                    status_text.text(f"⚡ מנתח במקביל... השלים {completed}/{len(target_list)} מניות (אחרון: {ticker})")
+                    status_text.text(f"⚡ מנתח במקביל בטורבו... השלים {completed}/{len(target_list)} מניות (אחרון: {ticker})")
                     progress_bar.progress(completed / len(target_list))
                 
                 res = future.result()
@@ -475,7 +477,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                 msg = "💎 *יהלומים זוהו בצייד (מוסדיים בפנים):*\n\n" + "\n".join([f"🔥 *{r['סימול']}* | קפיץ: {r['קפיץ']} | לווייתן: {r['לווייתן']}" for r in st.session_state.last_scan_results])
                 send_telegram_msg(tg_token, tg_chat_id, msg)
         else:
-            st.warning("לא נמצאו יהלומים בסריקה האחרונה. לחץ שוב להגרלה או נסה קטגוריה אחרת!")
+            st.warning("לא נמצאו יהלומים בסריקה האחרונה. המתן להזדמנויות חדשות!")
 
 elif app_mode == "💼 ניהול תיק השקעות":
     st.title("💼 תחנת פיקוד: תיק השקעות וניטור בריאות")

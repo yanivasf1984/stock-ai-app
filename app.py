@@ -13,21 +13,10 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 import random
 import concurrent.futures
-import time
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# חייב להיות הפקודה הראשונה של Streamlit
 st.set_page_config(page_title="AI Stock Analytics Pro - BLINK Edition", page_icon="💎", layout="wide")
-
-# רשימת זהויות (הסוואה) כדי שיאהו לא יזהו אותנו כרובוט
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
-]
 
 THEMATIC_TICKERS = {
     "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
@@ -55,16 +44,17 @@ def get_stock_universe():
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
     try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
         url = 'https://www.sec.gov/files/company_tickers.json'
-        headers = {'User-Agent': random.choice(USER_AGENTS)}
-        res = requests.get(url, headers=headers, timeout=5)
+        res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             data = res.json()
             sec_tickers = [item['ticker'] for item in data.values()]
             
-            # פילטר BLINK: משאיר רק מניות חוקיות
+            # הסינון היחיד שהשארנו: רק מניות חוקיות שמתאימות ל-BLINK (עד 4 אותיות, בלי זבל)
             blink_safe_tickers = [t for t in sec_tickers if t.isalpha() and len(t) <= 4]
             massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
+            
             if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
             return massive_universe, blink_safe_tickers, israeli_stocks
     except Exception:
@@ -109,7 +99,7 @@ def send_telegram_msg(bot_token, chat_id, text):
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=3)
+        res = requests.post(url, json=payload, timeout=5)
         if res.status_code == 200: return True, "התראה נשלחה!"
         return False, f"שגיאה מהשרת: {res.text}"
     except Exception as e:
@@ -117,10 +107,10 @@ def send_telegram_msg(bot_token, chat_id, text):
 
 def fetch_yahoo_chart(ticker):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
-    # החלפת זהות רנדומלית בכל בקשה!
-    headers = {'User-Agent': random.choice(USER_AGENTS)}
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        response = requests.get(url, headers=headers, verify=False, timeout=3)
+        # חזרנו ל-8 שניות המתנה האמינות והטובות של אתמול
+        response = requests.get(url, headers=headers, verify=False, timeout=8)
         if response.status_code == 200:
             return response.json().get('chart', {}).get('result')
     except Exception:
@@ -128,16 +118,6 @@ def fetch_yahoo_chart(ticker):
     return None
 
 @st.cache_data(ttl=1800)
-def get_sp500_df():
-    res = fetch_yahoo_chart('^GSPC')
-    if res and 'timestamp' in res[0]:
-        df_sp = pd.DataFrame({
-            'Date': pd.to_datetime(res[0]['timestamp'], unit='s'),
-            'SP500_Close': res[0]['indicators']['quote'][0]['close']
-        }).dropna()
-        return df_sp
-    return None
-
 def fetch_live_data(raw_ticker):
     ticker = raw_ticker.strip().upper()
     is_israeli = ticker in THEMATIC_TICKERS["קרנות ישראליות"] or ticker.endswith('.TA')
@@ -171,8 +151,13 @@ def fetch_live_data(raw_ticker):
     
     if len(df) < 60: return None, None, None
 
-    df_sp = get_sp500_df()
-    if df_sp is not None:
+    # חזרנו לדרך הבטוחה של אתמול לשלוף את ה-S&P 500
+    sp500_result = fetch_yahoo_chart('^GSPC')
+    if sp500_result and 'timestamp' in sp500_result[0]:
+        df_sp = pd.DataFrame({
+            'Date': pd.to_datetime(sp500_result[0]['timestamp'], unit='s'),
+            'SP500_Close': sp500_result[0]['indicators']['quote'][0]['close']
+        }).dropna()
         df = pd.merge(df, df_sp, on='Date', how='left').ffill()
     else:
         df['SP500_Close'] = df['Close']
@@ -426,51 +411,40 @@ elif app_mode == "📋 סורק רשימת מעקב":
 
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - BLINK Edition)")
-    st.markdown("סורק מניות מובילות התואמות לאפליקציית BLINK. **המנוע חמוש במנגנון התחמקות מחסימות שרת!**")
+    st.markdown("סורק בטוח ויציב: מגריל עד 1500 מניות התואמות לפלטפורמת BLINK.")
     
     if 'last_scan_results' not in st.session_state:
         st.session_state.last_scan_results = None
 
-    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב - אקראי מתוך {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק עד 1500 מתוך {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
     
-    # ברירת מחדל בטוחה: 200 מניות בלבד. אפשר להעלות אבל בזהירות.
-    scan_limit = len(all_tickers)
-    if "רדאר מסתובב" in scan_group:
-        scan_limit = st.slider("🎯 בחר כמות מניות לסריקה:", min_value=50, max_value=1500, value=200, step=50)
-
     def process_single_ticker(ticker):
-        # מנגנון אנושי: השהייה קטנטנה של עשירית שנייה כדי לא להיראות כמו בוט
-        time.sleep(random.uniform(0.1, 0.3))
         try:
             df, curr, actual_ticker = fetch_live_data(ticker)
-            if df is None: return "FAIL"
-            
-            processed = process_features_and_model(df)
-            if processed[0] is not None:
-                df = processed[0]
-                avg_p = processed[3]
-                price = df['Close'].iloc[-1]
-                
-                if avg_p >= 52 and df['ADX'].iloc[-1] >= 20 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]:
-                    whale = "🐋 כן!" if df['Whale_Buy'].iloc[-1] else "לא"
-                    sqz = "🗜️ דחוס" if df['Squeeze_On'].iloc[-1] else "משוחרר"
-                    rs_status = "👑 חזקה" if df['RS'].iloc[-1] > df['RS_SMA_20'].iloc[-1] else "חלשה"
+            if df is not None:
+                processed = process_features_and_model(df)
+                if processed[0] is not None:
+                    df = processed[0]
+                    avg_p = processed[3]
+                    price = df['Close'].iloc[-1]
                     
-                    return {
-                        "סימול": actual_ticker, "מחיר": f"{curr}{price:.2f}", "AI": f"{avg_p:.1f}%", 
-                        "לווייתן": whale, "קפיץ": sqz, "עוצמה RS": rs_status
-                    }
+                    if avg_p >= 52 and df['ADX'].iloc[-1] >= 20 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]:
+                        whale = "🐋 כן!" if df['Whale_Buy'].iloc[-1] else "לא"
+                        sqz = "🗜️ דחוס" if df['Squeeze_On'].iloc[-1] else "משוחרר"
+                        rs_status = "👑 חזקה" if df['RS'].iloc[-1] > df['RS_SMA_20'].iloc[-1] else "חלשה"
+                        
+                        return {
+                            "סימול": actual_ticker, "מחיר": f"{curr}{price:.2f}", "AI": f"{avg_p:.1f}%", 
+                            "לווייתן": whale, "קפיץ": sqz, "עוצמה RS": rs_status
+                        }
         except Exception:
             pass
-        return "FAIL"
+        return None
 
-    if st.button("🔎 התחל בסריקת צלף"):
-        with st.spinner("טוען מדדי בסיס (S&P 500) להאצת הסריקה..."):
-            get_sp500_df()
-            
+    if st.button("🔎 התחל בסריקת צלף מקבילית"):
         if "רדאר מסתובב" in scan_group:
-            target_list = random.sample(all_tickers, min(scan_limit, len(all_tickers)))
-            st.info(f"🎲 מגריל כעת {len(target_list)} מניות מתוך המאגר המורחב (מסונן BLINK)...")
+            target_list = random.sample(all_tickers, min(1500, len(all_tickers)))
+            st.info(f"🎲 מגריל כעת {len(target_list)} מניות מתוך המאגר החוקי ל-BLINK...")
         else:
             target_list = THEMATIC_TICKERS[scan_group]
             
@@ -479,31 +453,20 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         status_text = st.empty()
         
         completed = 0
-        failed_consecutive = 0
-        
-        # הורדנו ל-5 סורקים בלבד (Safe Mode) - לא ייתקע יותר!
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        # חזרנו ל-10 מנועים יציבים שעוברים חלק את יאהו
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             future_to_ticker = {executor.submit(process_single_ticker, ticker): ticker for ticker in target_list}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 completed += 1
                 ticker = future_to_ticker[future]
                 
-                res = future.result()
-                
-                # מפסק חירום (Circuit Breaker): אם 15 מניות נכשלות ברצף - יאהו חסמו אותנו.
-                if res == "FAIL":
-                    failed_consecutive += 1
-                    if failed_consecutive >= 15:
-                        st.error("🚨 מפסק חירום הופעל: יאהו פיננסים חסמו אותנו זמנית (זיהו עומס). הסריקה נעצרה כדי לשמור על מה שנמצא. מומלץ להמתין 10 דקות או לנסות כמות קטנה יותר.")
-                        break
-                else:
-                    failed_consecutive = 0 # איפוס מונה
-                    if res:
-                        opportunities.append(res)
-
                 if completed % 10 == 0 or completed == len(target_list):
-                    status_text.text(f"⚡ מנתח במקביל (הסוואה פועלת)... השלים {completed}/{len(target_list)} מניות")
+                    status_text.text(f"⚡ מנתח במקביל... השלים {completed}/{len(target_list)} מניות (אחרון: {ticker})")
                     progress_bar.progress(completed / len(target_list))
+                
+                res = future.result()
+                if res:
+                    opportunities.append(res)
             
         progress_bar.empty(); status_text.empty()
         st.session_state.last_scan_results = opportunities
@@ -516,7 +479,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                 msg = "💎 *יהלומים זוהו בצייד (מוסדיים בפנים):*\n\n" + "\n".join([f"🔥 *{r['סימול']}* | קפיץ: {r['קפיץ']} | לווייתן: {r['לווייתן']}" for r in st.session_state.last_scan_results])
                 send_telegram_msg(tg_token, tg_chat_id, msg)
         else:
-            st.warning("לא נמצאו יהלומים בסריקה האחרונה, או שהסריקה נעצרה. נסה שוב!")
+            st.warning("לא נמצאו יהלומים בסריקה האחרונה. המתן להזדמנויות חדשות!")
 
 elif app_mode == "💼 ניהול תיק השקעות":
     st.title("💼 תחנת פיקוד: תיק השקעות וניטור בריאות")

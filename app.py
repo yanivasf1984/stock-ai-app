@@ -69,7 +69,7 @@ def get_stock_universe():
     massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
     return massive_universe, fallback_list, israeli_stocks
 
-# מוצא את התיקייה המדויקת שבה יושב הקוד שלנו, כדי שהשמירה תמיד תהיה לידו
+# הגדרת נתיב קבוע לשמירת קבצים - מונע מחיקת נתונים!
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.json")
 PORTFOLIO_FILE = os.path.join(BASE_DIR, "portfolio.json")
@@ -320,7 +320,6 @@ if app_mode == "🔍 ניתוח מניה בודדת":
                 col7.metric("פעילות לווייתנים", "🐋 קנייה ענקית זוהתה!" if is_whale else "רגיל")
                 col8.metric("עוצמה יחסית (RS)", "👑 חזקה מהשוק" if rs_current > rs_sma else "🐢 חלשה מהשוק")
 
-                # תנאי התרעה תואמים לצייד החדש
                 if avg_prob >= 52 and adx_val >= 20 and macd_h > 0 and current_price > current_vwma:
                     alert_text = "🎯 **יהלום! איתות קנייה חזק + מומנטום + תמיכת קונים (STRONG BUY)**"
                     if not is_squeeze: alert_text += " [הקפיץ השתחרר!]"
@@ -400,7 +399,6 @@ elif app_mode == "📋 סורק רשימת מעקב":
                     sqz = "🗜️" if df['Squeeze_On'].iloc[-1] else ""
                     rs_icon = "👑" if df['RS'].iloc[-1] > df['RS_SMA_20'].iloc[-1] else ""
                     
-                    # תנאים מותאמים
                     rec = "🎯 יהלום" if (avg_p >= 52 and df['ADX'].iloc[-1] >= 20 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]) else ("🟡 המתנה" if avg_p >= 48 else "🔴 מכירה")
                     results.append({"סימול": actual_ticker, "מחיר": f"{curr}{price:.2f}", "המלצה": rec, "AI": f"{avg_p:.1f}%", "אינדיקטורים": f"{whale} {sqz} {rs_icon}"})
             progress_bar.progress((idx + 1) / len(st.session_state.watchlist))
@@ -413,6 +411,9 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - MultiThreaded)")
     st.markdown("מחפש מניות שעוברות את מבחני הכוח. הכיול עודכן (AI > 52%, ADX >= 20, MACD חיובי) **מריץ סריקות במקביל לביצועים מקסימליים!**")
     
+    if 'last_scan_results' not in st.session_state:
+        st.session_state.last_scan_results = None
+
     scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק אקראית מתוך מאגר של {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
     
     def process_single_ticker(ticker):
@@ -425,7 +426,6 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                     avg_p = processed[3]
                     price = df['Close'].iloc[-1]
                     
-                    # הנה ההקלה בתנאים שהכנסנו (רף AI ירד ל-52, ADX ל-20, אין חובה ל-CMF והאצת MACD)
                     if avg_p >= 52 and df['ADX'].iloc[-1] >= 20 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]:
                         whale = "🐋 כן!" if df['Whale_Buy'].iloc[-1] else "לא"
                         sqz = "🗜️ דחוס" if df['Squeeze_On'].iloc[-1] else "משוחרר"
@@ -466,15 +466,17 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
                     opportunities.append(res)
             
         progress_bar.empty(); status_text.empty()
-        
-        if opportunities:
-            st.success(f"💎 הסריקה המקבילית הסתיימה בהצלחה! נמצאו {len(opportunities)} יהלומים.")
-            st.dataframe(pd.DataFrame(opportunities), use_container_width=True)
+        st.session_state.last_scan_results = opportunities
+
+    if st.session_state.last_scan_results is not None:
+        if len(st.session_state.last_scan_results) > 0:
+            st.success(f"💎 נמצאו {len(st.session_state.last_scan_results)} יהלומים מהסריקה האחרונה.")
+            st.dataframe(pd.DataFrame(st.session_state.last_scan_results), use_container_width=True)
             if st.button("📲 שלח התראות קנייה לטלגרם"):
-                msg = "💎 *יהלומים זוהו בצייד (מוסדיים בפנים):*\n\n" + "\n".join([f"🔥 *{r['סימול']}* | קפיץ: {r['קפיץ']} | לווייתן: {r['לווייתן']}" for r in opportunities])
+                msg = "💎 *יהלומים זוהו בצייד (מוסדיים בפנים):*\n\n" + "\n".join([f"🔥 *{r['סימול']}* | קפיץ: {r['קפיץ']} | לווייתן: {r['לווייתן']}" for r in st.session_state.last_scan_results])
                 send_telegram_msg(tg_token, tg_chat_id, msg)
         else:
-            st.warning("לא נמצאו יהלומים שעומדים בכל הקריטריונים הנוקשים כרגע. לחץ שוב להגרלה חדשה!")
+            st.warning("לא נמצאו יהלומים בסריקה האחרונה. לחץ שוב להגרלה או נסה קטגוריה אחרת!")
 
 elif app_mode == "💼 ניהול תיק השקעות":
     st.title("💼 תחנת פיקוד: תיק השקעות וניטור בריאות")

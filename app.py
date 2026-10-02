@@ -17,12 +17,13 @@ import concurrent.futures
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="AI Stock Analytics Pro - Command Center", page_icon="💎", layout="wide")
+st.set_page_config(page_title="AI Stock Analytics Pro - BLINK Edition", page_icon="💎", layout="wide")
 
+# רשימות מותאמות - הוסר קריפטו ישיר, נשארו רק תעודות סל שקיימות ב-BLINK
 THEMATIC_TICKERS = {
     "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
-    "קריפטו": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
-    "ביטקויין": ['BTC-USD', 'IBIT', 'FBTC', 'ARKB', 'BITB', 'BITO'],
+    "קריפטו (תעודות סל)": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
+    "ביטקויין (תעודות סל)": ['IBIT', 'FBTC', 'ARKB', 'BITB', 'BITO'],
     "בינה מלאכותית": ['NVDA', 'AMD', 'SMCI', 'PLTR', 'MSFT', 'GOOGL', 'META', 'TSM', 'ASML', 'CRWD', 'PANW'],
     "מחשב קוונטי": ['IONQ', 'QBTS', 'RGTI', 'IBM', 'HON', 'GOOGL'],
     "גיימינג": ['EA', 'TTWO', 'RBLX', 'NTES', 'SONY', 'MSFT', 'TCEHY'],
@@ -44,36 +45,33 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
-    try:
-        headers = {'User-Agent': 'AI_Stock_Hunter mytradingapp@gmail.com'}
-        url = 'https://www.sec.gov/files/company_tickers.json'
-        res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            sec_tickers = [item['ticker'] for item in data.values()]
-            massive_universe = sorted(list(set(sec_tickers + all_thematic + israeli_stocks + etfs)))
-            return massive_universe, sec_tickers, israeli_stocks
-    except Exception:
-        pass
-
+    # סינון BLINK: לא שואבים יותר עשרות אלפי מניות זבל מה-SEC.
+    # אנחנו שואבים רק את ה-S&P 500 הרשמי + הרשימות שלנו. כולן קיימות באפליקציות המסחר.
     try:
         sp500_df = pd.read_csv('https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv')
-        sp500_tickers = sp500_df['Symbol'].tolist()
-        sp500_tickers = [str(s).replace('.', '-') for s in sp500_tickers]
-        massive_universe = sorted(list(set(sp500_tickers + all_thematic + israeli_stocks + etfs)))
-        return massive_universe, sp500_tickers, israeli_stocks
+        blink_safe_tickers = sp500_df['Symbol'].tolist()
+        blink_safe_tickers = [str(s).replace('.', '-') for s in blink_safe_tickers]
+        massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
+        
+        # מוודאים שקריפטו ישיר לא מסתנן פנימה בשום צורה
+        if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
+            
+        return massive_universe, blink_safe_tickers, israeli_stocks
     except Exception:
         pass
 
+    # גיבוי
     fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']
     massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
+    if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
     return massive_universe, fallback_list, israeli_stocks
 
-# הגדרת נתיב קבוע לשמירת קבצים - מונע מחיקת נתונים!
+# הגדרת נתיב קבוע לשמירת קבצים - מונע מחיקת נתונים
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.json")
 PORTFOLIO_FILE = os.path.join(BASE_DIR, "portfolio.json")
-DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'BTC-USD', 'NVDA', 'LEUMI.TA', 'TSLA']
+# רשימת מעקב התחלתית מעודכנת ל-BLINK (הוחלף BTC-USD ב-IBIT)
+DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'IBIT', 'NVDA', 'LEUMI.TA', 'TSLA']
 
 def load_json_file(filepath, default_value):
     if os.path.exists(filepath):
@@ -284,7 +282,7 @@ tg_chat_id = st.sidebar.text_input("Chat ID:", value="5117812191")
 
 if app_mode == "🔍 ניתוח מניה בודדת":
     st.title("🔍 ניתוח צלף מקצועי (כולל לווייתנים וקפיץ)")
-    target_ticker = st.text_input("הקלד סימול מניה (למשל TSLA, BTC-USD):", value="SPY").strip().upper()
+    target_ticker = st.text_input("הקלד סימול מניה (למשל TSLA, IBIT):", value="SPY").strip().upper()
 
     if target_ticker:
         with st.spinner(f"מנתח נתוני שוק עבור {target_ticker}..."):
@@ -408,13 +406,13 @@ elif app_mode == "📋 סורק רשימת מעקב":
             st.dataframe(pd.DataFrame(results), use_container_width=True)
 
 elif app_mode == "🚀 צייד הזדמנויות שוק":
-    st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - MultiThreaded)")
-    st.markdown("מחפש מניות שעוברות את מבחני הכוח. הכיול עודכן (AI > 52%, ADX >= 20, MACD חיובי) **מריץ סריקות במקביל לביצועים מקסימליים!**")
+    st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - BLINK Edition)")
+    st.markdown("סורק מניות מובילות בלבד (S&P 500) התואמות לפלטפורמת BLINK. **מריץ סריקות במקביל לביצועים מקסימליים!**")
     
     if 'last_scan_results' not in st.session_state:
         st.session_state.last_scan_results = None
 
-    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק אקראית מתוך מאגר של {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק מתוך מאגר BLINK של {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
     
     def process_single_ticker(ticker):
         try:
@@ -441,8 +439,9 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
 
     if st.button("🔎 התחל בסריקת צלף מקבילית"):
         if "רדאר מסתובב" in scan_group:
-            target_list = random.sample(all_tickers, min(1500, len(all_tickers)))
-            st.info("🎲 מגריל כעת מניות חדשות לבדיקה (עיבוד מקבילי)...")
+            # מגריל מתוך המאגר המצומצם והאיכותי
+            target_list = random.sample(all_tickers, min(len(all_tickers), 1500))
+            st.info(f"🎲 מגריל כעת {len(target_list)} מניות תואמות BLINK לבדיקה...")
         else:
             target_list = THEMATIC_TICKERS[scan_group]
             
@@ -470,7 +469,7 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
 
     if st.session_state.last_scan_results is not None:
         if len(st.session_state.last_scan_results) > 0:
-            st.success(f"💎 נמצאו {len(st.session_state.last_scan_results)} יהלומים מהסריקה האחרונה.")
+            st.success(f"💎 נמצאו {len(st.session_state.last_scan_results)} יהלומים התואמים ל-BLINK.")
             st.dataframe(pd.DataFrame(st.session_state.last_scan_results), use_container_width=True)
             if st.button("📲 שלח התראות קנייה לטלגרם"):
                 msg = "💎 *יהלומים זוהו בצייד (מוסדיים בפנים):*\n\n" + "\n".join([f"🔥 *{r['סימול']}* | קפיץ: {r['קפיץ']} | לווייתן: {r['לווייתן']}" for r in st.session_state.last_scan_results])

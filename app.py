@@ -9,7 +9,6 @@ import streamlit as st
 from sklearn.ensemble import HistGradientBoostingClassifier
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import time
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 import random
@@ -106,19 +105,28 @@ def fetch_yahoo_chart(ticker):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # זמן המתנה קוצר ל-3 שניות לטובת ביצועים - נכשל מהר אם אין נתונים
-        response = requests.get(url, headers=headers, verify=False, timeout=3)
+        response = requests.get(url, headers=headers, verify=False, timeout=4)
         if response.status_code == 200:
             return response.json().get('chart', {}).get('result')
     except Exception:
         pass
     return None
 
+# מונע כפילויות בפניות ליאהו - שומר את נתוני ה-S&P 500 בזיכרון (חסכון של 50% מהבקשות!)
+@st.cache_data(ttl=1800)
+def get_sp500_df():
+    res = fetch_yahoo_chart('^GSPC')
+    if res and 'timestamp' in res[0]:
+        df_sp = pd.DataFrame({
+            'Date': pd.to_datetime(res[0]['timestamp'], unit='s'),
+            'SP500_Close': res[0]['indicators']['quote'][0]['close']
+        }).dropna()
+        return df_sp
+    return None
+
 @st.cache_data(ttl=1800)
 def fetch_live_data(raw_ticker):
     ticker = raw_ticker.strip().upper()
-    
-    # ייעול: לא מחפשים סיומת TA למניות שלא הוגדרו כישראליות (חוסך זמן בסריקה)
     is_israeli = ticker in THEMATIC_TICKERS["קרנות ישראליות"] or ticker.endswith('.TA')
     if is_israeli:
         tickers_to_try = [ticker] if ticker.endswith('.TA') else [f"{ticker}.TA"]
@@ -150,12 +158,9 @@ def fetch_live_data(raw_ticker):
     
     if len(df) < 60: return None, None, None
 
-    sp500_result = fetch_yahoo_chart('^GSPC')
-    if sp500_result and 'timestamp' in sp500_result[0]:
-        df_sp = pd.DataFrame({
-            'Date': pd.to_datetime(sp500_result[0]['timestamp'], unit='s'),
-            'SP500_Close': sp500_result[0]['indicators']['quote'][0]['close']
-        }).dropna()
+    # שולפים מהזיכרון במקום ליצור פנייה חדשה ליאהו
+    df_sp = get_sp500_df()
+    if df_sp is not None:
         df = pd.merge(df, df_sp, on='Date', how='left').ffill()
     else:
         df['SP500_Close'] = df['Close']
@@ -409,7 +414,7 @@ elif app_mode == "📋 סורק רשימת מעקב":
 
 elif app_mode == "🚀 צייד הזדמנויות שוק":
     st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - BLINK Edition)")
-    st.markdown("סורק מניות מובילות בלבד (S&P 500) התואמות לפלטפורמת BLINK. **הסריקה פועלת בקצב מאוזן שעוקף חסימות שרת!**")
+    st.markdown("סורק מניות מובילות בלבד התואמות לפלטפורמת BLINK. **עבר אופטימיזציה לחסכון בבקשות API ומהירות שיא!**")
     
     if 'last_scan_results' not in st.session_state:
         st.session_state.last_scan_results = None
@@ -440,6 +445,10 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         return None
 
     if st.button("🔎 התחל בסריקת צלף מקבילית"):
+        # קוראים קודם ל-SP500 פעם אחת מראש, כדי שכל שאר המניות לא יתקעו!
+        with st.spinner("טוען מדדי בסיס (S&P 500)..."):
+            get_sp500_df()
+            
         if "רדאר מסתובב" in scan_group:
             target_list = all_tickers
             st.info(f"⚡ סורק כעת במקביל את כל {len(target_list)} המניות (מותאם BLINK)...")
@@ -451,8 +460,8 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
         status_text = st.empty()
         
         completed = 0
-        # הוחזר ל-10 סורקים במקביל כדי למנוע חסימות מיאהו פיננסים ולרוץ חלק
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # מנוע מקבילי של 20 סורקים!
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             future_to_ticker = {executor.submit(process_single_ticker, ticker): ticker for ticker in target_list}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 completed += 1

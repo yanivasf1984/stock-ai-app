@@ -1,5 +1,37 @@
 import sys
 import os
+import subprocess
+
+# =========================================================
+# 1. מנגנון הרצה אוטומטי (מונע שגיאות CMD ומפעיל את האתר)
+# =========================================================
+IS_STREAMLIT = os.environ.get("RUNNING_IN_STREAMLIT") == "1"
+
+if __name__ == "__main__" and not IS_STREAMLIT:
+    # מוודא שכל הספריות מותקנות
+    for pkg in ["requests", "pandas", "numpy", "scikit-learn", "streamlit", "plotly", "yfinance", "streamlit-autorefresh"]:
+        try:
+            if pkg == "streamlit-autorefresh":
+                __import__("streamlit_autorefresh")
+            else:
+                __import__(pkg)
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+    
+    print("\n" + "="*60)
+    print("   [+] מפעיל את מערכת AI Stock Analytics (BLINK Edition)...   ")
+    print("="*60)
+    
+    env = os.environ.copy()
+    env["RUNNING_IN_STREAMLIT"] = "1"
+    script_path = os.path.abspath(__file__)
+    
+    subprocess.run([sys.executable, "-m", "streamlit", "run", script_path], env=env)
+    sys.exit()
+
+# =========================================================
+# 2. קוד מערכת המסחר (Streamlit Dashboard)
+# =========================================================
 import json
 import urllib3
 import requests
@@ -15,6 +47,7 @@ from streamlit_autorefresh import st_autorefresh
 import random
 import concurrent.futures
 
+# ביטול אזהרות על עקיפת אבטחה
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="AI Stock Analytics Pro - BLINK Edition", page_icon="💎", layout="wide")
@@ -44,15 +77,21 @@ def get_stock_universe():
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
     
+    # בניית session שמתחזה לדפדפן אמיתי
+    session = requests.Session()
+    session.verify = False
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5"
+    })
+    
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
         url = 'https://www.sec.gov/files/company_tickers.json'
-        res = requests.get(url, headers=headers, timeout=10)
+        res = session.get(url, timeout=10)
         if res.status_code == 200:
             data = res.json()
             sec_tickers = [item['ticker'] for item in data.values()]
-            
-            # פילטר BLINK
             blink_safe_tickers = [t for t in sec_tickers if t.isalpha() and len(t) <= 4]
             massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
             
@@ -99,15 +138,17 @@ def send_telegram_msg(bot_token, chat_id, text):
         return False, "נא להגדיר Token ו-Chat ID"
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+    
+    session = requests.Session()
+    session.verify = False
+    
     try:
-        res = requests.post(url, json=payload, timeout=5)
+        res = session.post(url, json=payload, timeout=5)
         if res.status_code == 200: return True, "התראה נשלחה!"
         return False, f"שגיאה מהשרת: {res.text}"
     except Exception as e:
         return False, str(e)
 
-# שימוש בספריית yfinance היציבה במקום בקשות ישירות שנחסמות
-@st.cache_data(ttl=1800)
 def fetch_live_data(raw_ticker):
     ticker = raw_ticker.strip().upper()
     is_israeli = ticker in THEMATIC_TICKERS["קרנות ישראליות"] or ticker.endswith('.TA')
@@ -118,10 +159,19 @@ def fetch_live_data(raw_ticker):
 
     df = None
     successful_ticker = None
+    
+    # מנגנון התחזות לדפדפן (Anti-Bot Bypass) יחד עם עקיפת SSL
+    session = requests.Session()
+    session.verify = False
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5"
+    })
 
     for t in tickers_to_try:
         try:
-            stock = yf.Ticker(t)
+            stock = yf.Ticker(t, session=session)
             temp_df = stock.history(period="2y")
             if temp_df is not None and not temp_df.empty and len(temp_df) > 60:
                 df = temp_df
@@ -133,17 +183,14 @@ def fetch_live_data(raw_ticker):
     if df is None or df.empty:
         return None, None, None
 
-    # סידור הנתונים כך שיתאימו למערכת שלנו
     df.reset_index(inplace=True)
     if 'Date' not in df.columns and 'Datetime' in df.columns:
         df = df.rename(columns={'Datetime': 'Date'})
     
-    # ניקוי אזורי זמן כדי למנוע התנגשויות
     df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
 
-    # הבאת נתוני S&P 500 דרך yfinance
     try:
-        sp500 = yf.Ticker('^GSPC').history(period="2y")
+        sp500 = yf.Ticker('^GSPC', session=session).history(period="2y")
         sp500.reset_index(inplace=True)
         sp500['Date'] = pd.to_datetime(sp500['Date']).dt.tz_localize(None)
         sp500 = sp500[['Date', 'Close']].rename(columns={'Close': 'SP500_Close'})
@@ -151,11 +198,9 @@ def fetch_live_data(raw_ticker):
     except Exception:
         df['SP500_Close'] = df['Close']
 
-    # טיפול במטבעות
     curr = "$"
     if is_israeli or (successful_ticker and successful_ticker.endswith('.TA')):
         curr = "₪"
-        # תיקון מניות שנסחרות באגורות במקום שקלים
         if df['Close'].mean() > 100:
             df[['Open', 'High', 'Low', 'Close']] = df[['Open', 'High', 'Low', 'Close']] / 100
             

@@ -3,23 +3,27 @@ import os
 import subprocess
 
 # =========================================================
-# 1. מנגנון הרצה אוטומטי (מונע שגיאות CMD ומפעיל את האתר)
+# 1. מנגנון הרצה אוטומטי ועקיפת חסימות SSL/Firewall ארגוניות
 # =========================================================
 IS_STREAMLIT = os.environ.get("RUNNING_IN_STREAMLIT") == "1"
 
 if __name__ == "__main__" and not IS_STREAMLIT:
-    # מוודא שכל הספריות מותקנות
-    for pkg in ["requests", "pandas", "numpy", "scikit-learn", "streamlit", "plotly", "yfinance", "streamlit-autorefresh"]:
+    packages = ["requests", "pandas", "numpy", "scikit-learn", "streamlit", "plotly", "yfinance", "streamlit-autorefresh", "pip-system-certs"]
+    for pkg in packages:
         try:
             if pkg == "streamlit-autorefresh":
                 __import__("streamlit_autorefresh")
+            elif pkg == "pip-system-certs":
+                __import__("pip_system_certs")
+            elif pkg == "scikit-learn":
+                __import__("sklearn")
             else:
                 __import__(pkg)
         except ImportError:
             subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
     
     print("\n" + "="*60)
-    print("   [+] מפעיל את מערכת AI Stock Analytics (BLINK Edition)...   ")
+    print("   [+] מפעיל את מערכת AI Stock Analytics Pro...   ")
     print("="*60)
     
     env = os.environ.copy()
@@ -29,8 +33,13 @@ if __name__ == "__main__" and not IS_STREAMLIT:
     subprocess.run([sys.executable, "-m", "streamlit", "run", script_path], env=env)
     sys.exit()
 
+try:
+    import pip_system_certs.wrapt
+except ImportError:
+    pass
+
 # =========================================================
-# 2. קוד מערכת המסחר (Streamlit Dashboard)
+# 2. קוד מערכת המסחר המלאה (Full Edition + Deep Analytics)
 # =========================================================
 import json
 import urllib3
@@ -47,68 +56,70 @@ from streamlit_autorefresh import st_autorefresh
 import random
 import concurrent.futures
 
-# ביטול אזהרות על עקיפת אבטחה
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="AI Stock Analytics Pro - BLINK Edition", page_icon="💎", layout="wide")
+st.set_page_config(page_title="AI Stock Analytics Pro", page_icon="💎", layout="wide")
 
 THEMATIC_TICKERS = {
-    "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM'],
-    "קריפטו (תעודות סל)": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF'],
-    "ביטקויין (תעודות סל)": ['IBIT', 'FBTC', 'ARKB', 'BITB', 'BITO'],
-    "בינה מלאכותית": ['NVDA', 'AMD', 'SMCI', 'PLTR', 'MSFT', 'GOOGL', 'META', 'TSM', 'ASML', 'CRWD', 'PANW'],
+    "טכנולוגיה": ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'AMD', 'ACN', 'CSCO', 'INTC', 'QCOM', 'IBM', 'PLTR', 'SNOW', 'MDB', 'DDOG'],
+    "קריפטו (תעודות סל ומניות)": ['COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF', 'SMR', 'HOOD'],
+    "ביטקויין (תעודות סל)": ['IBIT', 'FBTC', 'ARKB', 'BITB', 'BITO', 'GBTC'],
+    "בינה מלאכותית": ['NVDA', 'AMD', 'SMCI', 'PLTR', 'MSFT', 'GOOGL', 'META', 'TSM', 'ASML', 'CRWD', 'PANW', 'AI', 'PATH'],
     "מחשב קוונטי": ['IONQ', 'QBTS', 'RGTI', 'IBM', 'HON', 'GOOGL'],
-    "גיימינג": ['EA', 'TTWO', 'RBLX', 'NTES', 'SONY', 'MSFT', 'TCEHY'],
-    "זהב": ['GLD', 'IAU', 'GDX', 'NEM', 'GOLD', 'AEM', 'FNV'],
-    "אנרגיה ותשתיות": ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PXD', 'VLO', 'NEP', 'BIP'],
-    "קרנות ישראליות": ['EIS', 'IZRL', 'ISRA', 'ITEQ', 'TA35.TA', 'TA125.TA', 'LEUMI.TA', 'POALIM.TA', 'NICE.TA'],
-    "בריאות": ['LLY', 'UNH', 'JNJ', 'MRK', 'ABBV', 'TMO', 'PFE', 'DHR', 'AMGN', 'ISRG'],
-    "פיננסים": ['BRK-B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'MS', 'GS', 'BLK', 'C'],
-    "תקשורת": ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'CHTR', 'TMUS'],
-    "תעשייה": ['CAT', 'GE', 'UNP', 'HON', 'BA', 'UPS', 'RTX', 'LMT', 'DE', 'ADP'],
-    "תחום הצריכה": ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'WMT', 'PG', 'KO', 'PEP', 'COST'],
-    "שירותים": ['NEE', 'DUK', 'SO', 'SRE', 'AEP', 'D', 'EXC', 'XEL'],
+    "גיימינג": ['EA', 'TTWO', 'RBLX', 'NTES', 'SONY', 'MSFT', 'TCEHY', 'U'],
+    "זהב ומתכות": ['GLD', 'IAU', 'GDX', 'NEM', 'GOLD', 'AEM', 'FNV', 'SLV'],
+    "אנרגיה ותשתיות": ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PXD', 'VLO', 'NEP', 'BIP', 'SMR'],
+    'קרנות ישראליות ומניות ת"א': ['EIS', 'IZRL', 'ISRA', 'ITEQ', 'TA35.TA', 'TA125.TA', 'LEUMI.TA', 'POALIM.TA', 'NICE.TA', 'ICL.TA', 'TEVA.TA'],
+    "בריאות ופארמה": ['LLY', 'UNH', 'JNJ', 'MRK', 'ABBV', 'TMO', 'PFE', 'DHR', 'AMGN', 'ISRG', 'MRNA', 'BNTX'],
+    "פיננסים ובנקים": ['BRK-B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'MS', 'GS', 'BLK', 'C', 'PYPL', 'SQ'],
+    "תקשורת ומדיה": ['GOOGL', 'META', 'NFLX', 'DIS', 'CMCSA', 'VZ', 'T', 'CHTR', 'TMUS', 'SPOT'],
+    "תעשייה ותעופה": ['CAT', 'GE', 'UNP', 'HON', 'BA', 'UPS', 'RTX', 'LMT', 'DE', 'ADP'],
+    "תחום הצריכה": ['AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'SBUX', 'WMT', 'PG', 'KO', 'PEP', 'COST', 'MELI', 'ABNB'],
+    "שירותים ותשתיות": ['NEE', 'DUK', 'SO', 'SRE', 'AEP', 'D', 'EXC', 'XEL'],
     "נדל\"ן": ['PLD', 'AMT', 'EQIX', 'CCI', 'PSA', 'O', 'SPG', 'WELL']
 }
 
-@st.cache_data
 def get_stock_universe():
-    israeli_stocks = THEMATIC_TICKERS["קרנות ישראליות"]
+    israeli_stocks = THEMATIC_TICKERS['קרנות ישראליות ומניות ת"א']
     etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'TLT']
     all_thematic = [t for sublist in THEMATIC_TICKERS.values() for t in sublist]
-    
-    # בניית session שמתחזה לדפדפן אמיתי
-    session = requests.Session()
-    session.verify = False
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5"
-    })
-    
+    sec_tickers = []
+
     try:
+        session = requests.Session()
+        session.verify = False
+        session.headers.update({"User-Agent": "FinancialDashboard/1.0 (admin@app.local)"})
         url = 'https://www.sec.gov/files/company_tickers.json'
         res = session.get(url, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            sec_tickers = [item['ticker'] for item in data.values()]
-            blink_safe_tickers = [t for t in sec_tickers if t.isalpha() and len(t) <= 4]
-            massive_universe = sorted(list(set(blink_safe_tickers + all_thematic + israeli_stocks + etfs)))
-            
-            if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
-            return massive_universe, blink_safe_tickers, israeli_stocks
+            sec_tickers = [item['ticker'] for item in data.values() if isinstance(item, dict) and 'ticker' in item]
     except Exception:
         pass
 
-    fallback_list = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']
-    massive_universe = sorted(list(set(fallback_list + all_thematic + israeli_stocks + etfs)))
-    if 'BTC-USD' in massive_universe: massive_universe.remove('BTC-USD')
-    return massive_universe, fallback_list, israeli_stocks
+    if not sec_tickers:
+        try:
+            url_backup = "https://raw.githubusercontent.com/rreche/stock-ticker-csv/master/tickers.json"
+            res_b = requests.get(url_backup, verify=False, timeout=10)
+            if res_b.status_code == 200:
+                sec_tickers = res_b.json()
+        except Exception:
+            pass
+
+    if sec_tickers:
+        clean_sec = [str(t).upper().replace('.', '-') for t in sec_tickers if str(t).replace('.', '').isalpha()]
+        massive_universe = sorted(list(set(clean_sec + all_thematic + israeli_stocks + etfs)))
+    else:
+        massive_universe = sorted(list(set(all_thematic + israeli_stocks + etfs)))
+
+    if 'BTC-USD' in massive_universe: 
+        massive_universe.remove('BTC-USD')
+    return massive_universe
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WATCHLIST_FILE = os.path.join(BASE_DIR, "watchlist.json")
 PORTFOLIO_FILE = os.path.join(BASE_DIR, "portfolio.json")
-DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'IBIT', 'NVDA', 'LEUMI.TA', 'TSLA']
+DEFAULT_WATCHLIST = ['SPY', 'QQQ', 'IBIT', 'NVDA', 'LEUMI.TA', 'TSLA', 'SMR']
 
 def load_json_file(filepath, default_value):
     if os.path.exists(filepath):
@@ -138,10 +149,8 @@ def send_telegram_msg(bot_token, chat_id, text):
         return False, "נא להגדיר Token ו-Chat ID"
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-    
     session = requests.Session()
     session.verify = False
-    
     try:
         res = session.post(url, json=payload, timeout=5)
         if res.status_code == 200: return True, "התראה נשלחה!"
@@ -151,37 +160,67 @@ def send_telegram_msg(bot_token, chat_id, text):
 
 def fetch_live_data(raw_ticker):
     ticker = raw_ticker.strip().upper()
-    is_israeli = ticker in THEMATIC_TICKERS["קרנות ישראליות"] or ticker.endswith('.TA')
-    if is_israeli:
-        tickers_to_try = [ticker] if ticker.endswith('.TA') else [f"{ticker}.TA"]
-    else:
-        tickers_to_try = [ticker, ticker.replace('.', '-')]
-
-    df = None
-    successful_ticker = None
+    is_israeli = ticker in THEMATIC_TICKERS['קרנות ישראליות ומניות ת"א'] or ticker.endswith('.TA')
+    symbol = ticker if (is_israeli and ticker.endswith('.TA')) else (f"{ticker}.TA" if is_israeli else ticker.replace('.', '-'))
     
-    # מנגנון התחזות לדפדפן (Anti-Bot Bypass) יחד עם עקיפת SSL
-    session = requests.Session()
-    session.verify = False
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5"
-    })
+    df = None
+    error_logs = []
 
-    for t in tickers_to_try:
+    try:
+        import time
+        period1 = int(time.time()) - (2 * 365 * 24 * 60 * 60)
+        period2 = int(time.time())
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={period1}&period2={period2}&interval=1d"
+        session = requests.Session()
+        session.verify = False
+        session.headers.update({'User-Agent': 'Mozilla/5.0 Chrome/122.0.0.0 Safari/537.36'})
+        
+        res = session.get(url, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if 'chart' in data and 'result' in data['chart'] and data['chart']['result']:
+                result = data['chart']['result'][0]
+                timestamps = result.get('timestamp', [])
+                quote = result['indicators']['quote'][0]
+                if timestamps and quote:
+                    temp_df = pd.DataFrame({
+                        'Date': pd.to_datetime(timestamps, unit='s'),
+                        'Open': quote.get('open', []),
+                        'High': quote.get('high', []),
+                        'Low': quote.get('low', []),
+                        'Close': quote.get('close', []),
+                        'Volume': quote.get('volume', [])
+                    })
+                    temp_df.set_index('Date', inplace=True)
+                    temp_df.dropna(inplace=True)
+                    if len(temp_df) > 60:
+                        df = temp_df
+    except Exception as e:
+        error_logs.append(f"Raw API Error: {str(e)}")
+
+    if df is None or df.empty:
         try:
-            stock = yf.Ticker(t, session=session)
+            session = requests.Session()
+            session.verify = False
+            stock = yf.Ticker(symbol, session=session)
             temp_df = stock.history(period="2y")
             if temp_df is not None and not temp_df.empty and len(temp_df) > 60:
                 df = temp_df
-                successful_ticker = t
-                break
-        except Exception:
-            continue
+        except Exception as e:
+            error_logs.append(f"YF Ticker Error: {str(e)}")
 
     if df is None or df.empty:
-        return None, None, None
+        try:
+            temp_df = yf.download(symbol, period="2y", interval="1d", progress=False, auto_adjust=True)
+            if isinstance(temp_df.columns, pd.MultiIndex):
+                temp_df.columns = temp_df.columns.get_level_values(0)
+            if temp_df is not None and not temp_df.empty and len(temp_df) > 60:
+                df = temp_df
+        except Exception as e:
+            error_logs.append(f"YF Download Error: {str(e)}")
+
+    if df is None or df.empty:
+        return None, None, error_logs
 
     df.reset_index(inplace=True)
     if 'Date' not in df.columns and 'Datetime' in df.columns:
@@ -190,21 +229,26 @@ def fetch_live_data(raw_ticker):
     df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
 
     try:
-        sp500 = yf.Ticker('^GSPC', session=session).history(period="2y")
-        sp500.reset_index(inplace=True)
-        sp500['Date'] = pd.to_datetime(sp500['Date']).dt.tz_localize(None)
-        sp500 = sp500[['Date', 'Close']].rename(columns={'Close': 'SP500_Close'})
+        url_sp = f"https://query1.finance.yahoo.com/v8/finance/chart/^GSPC?period1={period1}&period2={period2}&interval=1d"
+        res_sp = requests.get(url_sp, verify=False, timeout=10)
+        data_sp = res_sp.json()
+        res_sp_data = data_sp['chart']['result'][0]
+        sp_times = res_sp_data['timestamp']
+        sp_close = res_sp_data['indicators']['quote'][0]['close']
+        sp500 = pd.DataFrame({'Date': pd.to_datetime(sp_times, unit='s'), 'SP500_Close': sp_close})
+        sp500['Date'] = sp500['Date'].dt.tz_localize(None)
+        sp500.dropna(inplace=True)
         df = pd.merge(df, sp500, on='Date', how='left').ffill()
     except Exception:
         df['SP500_Close'] = df['Close']
 
     curr = "$"
-    if is_israeli or (successful_ticker and successful_ticker.endswith('.TA')):
+    if is_israeli:
         curr = "₪"
         if df['Close'].mean() > 100:
             df[['Open', 'High', 'Low', 'Close']] = df[['Open', 'High', 'Low', 'Close']] / 100
             
-    return df, curr, successful_ticker
+    return df, curr, symbol
 
 def process_features_and_model(df):
     df['Return'] = df['Close'].pct_change()
@@ -284,7 +328,7 @@ def process_features_and_model(df):
     
     return df, prob_short, prob_long, (prob_short + prob_long) / 2, None, None
 
-all_tickers, us_stocks, israeli_stocks = get_stock_universe()
+all_tickers = get_stock_universe()
 
 st.sidebar.title("🎮 מצבי עבודה")
 app_mode = st.sidebar.radio("בחר תצוגה:", ["🔍 ניתוח מניה בודדת", "📋 סורק רשימת מעקב", "🚀 צייד הזדמנויות שוק", "💼 ניהול תיק השקעות"])
@@ -321,16 +365,20 @@ tg_token = st.sidebar.text_input("Token:", value="8979601396:AAFQjLLDf81HJPh8Rjk
 tg_chat_id = st.sidebar.text_input("Chat ID:", value="5117812191")
 
 if app_mode == "🔍 ניתוח מניה בודדת":
-    st.title("🔍 ניתוח צלף מקצועי (כולל לווייתנים וקפיץ)")
-    target_ticker = st.text_input("הקלד סימול מניה (למשל TSLA, IBIT):", value="SPY").strip().upper()
+    st.title("🔍 ניתוח צלף מקצועי (כל מניה / קריפטו / תעודת סל)")
+    target_ticker = st.text_input("הקלד סימול מניה (למשל TSLA, SMR, IBIT, AAPL):", value="SPY").strip().upper()
 
     if target_ticker:
         with st.spinner(f"מנתח נתוני שוק עבור {target_ticker}..."):
-            df, curr, actual_ticker = fetch_live_data(target_ticker)
+            df, curr, actual_ticker_or_errors = fetch_live_data(target_ticker)
             
         if df is None:
-            st.error(f"לא נשלפו נתונים עבור '{target_ticker}'. ייתכן שיאהו פיננסים חסמו אותך זמנית בגלל עומס, נסה להתחבר דרך Hotspot מהטלפון.")
+            st.error(f"לא נשלפו נתונים עבור '{target_ticker}'. בדוק שהסימול תקין.")
+            with st.expander("🛠️ מצב דיאגנוסטיקה - פירוט השגיאות"):
+                for err in actual_ticker_or_errors:
+                    st.code(err)
         else:
+            actual_ticker = actual_ticker_or_errors
             processed = process_features_and_model(df)
             if processed[0] is not None:
                 df, _, _, avg_prob, _, _ = processed
@@ -425,8 +473,9 @@ elif app_mode == "📋 סורק רשימת מעקב":
         results = []
         progress_bar = st.progress(0)
         for idx, ticker in enumerate(st.session_state.watchlist):
-            df, curr, actual_ticker = fetch_live_data(ticker)
+            df, curr, actual_ticker_or_errors = fetch_live_data(ticker)
             if df is not None:
+                actual_ticker = actual_ticker_or_errors
                 processed = process_features_and_model(df)
                 if processed[0] is not None:
                     df = processed[0]
@@ -446,41 +495,74 @@ elif app_mode == "📋 סורק רשימת מעקב":
             st.dataframe(pd.DataFrame(results), use_container_width=True)
 
 elif app_mode == "🚀 צייד הזדמנויות שוק":
-    st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode - BLINK Edition)")
-    st.markdown("סורק בטוח ויציב: מגריל עד 1500 מניות התואמות לפלטפורמת BLINK.")
+    st.title("🚀 צייד הזדמנויות אלגוריתמי (Sniper Mode)")
+    st.markdown(f"סורק מורחב: מגריל 1,500 מניות מתוך מאגר ענק של {len(all_tickers)} מניות שוק.")
     
     if 'last_scan_results' not in st.session_state:
         st.session_state.last_scan_results = None
 
-    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (רדאר מסתובב: סורק עד 1500 מתוך {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
+    scan_group = st.selectbox("בחר קטגוריה לסריקה:", [f"הכל (מאגר מורחב: סורק עד 1500 מתוך {len(all_tickers)} מניות)"] + list(THEMATIC_TICKERS.keys()))
     
     def process_single_ticker(ticker):
         try:
-            df, curr, actual_ticker = fetch_live_data(ticker)
+            df, curr, actual_ticker_or_errors = fetch_live_data(ticker)
             if df is not None:
+                actual_ticker = actual_ticker_or_errors
                 processed = process_features_and_model(df)
                 if processed[0] is not None:
                     df = processed[0]
                     avg_p = processed[3]
                     price = df['Close'].iloc[-1]
                     
-                    if avg_p >= 52 and df['ADX'].iloc[-1] >= 20 and df['MACD_Hist'].iloc[-1] > 0 and price > df['VWMA_20'].iloc[-1]:
-                        whale = "🐋 כן!" if df['Whale_Buy'].iloc[-1] else "לא"
-                        sqz = "🗜️ דחוס" if df['Squeeze_On'].iloc[-1] else "משוחרר"
-                        rs_status = "👑 חזקה" if df['RS'].iloc[-1] > df['RS_SMA_20'].iloc[-1] else "חלשה"
+                    adx_val = df['ADX'].iloc[-1]
+                    macd_h = df['MACD_Hist'].iloc[-1]
+                    current_vwma = df['VWMA_20'].iloc[-1]
+                    is_squeeze = df['Squeeze_On'].iloc[-1]
+                    is_whale = df['Whale_Buy'].iloc[-1]
+                    is_rs_strong = df['RS'].iloc[-1] > df['RS_SMA_20'].iloc[-1]
+                    rsi_val = df['RSI'].iloc[-1]
+                    sma20_val = df['SMA_20'].iloc[-1]
+                    atr_val = df['ATR'].iloc[-1]
+
+                    if avg_p >= 52 and adx_val >= 20 and macd_h > 0 and price > current_vwma:
+                        whale = "🐋 כן!" if is_whale else "לא"
+                        sqz = "🗜️ דחוס" if is_squeeze else "משוחרר"
+                        rs_status = "👑 חזקה" if is_rs_strong else "חלשה"
                         
+                        # בניית יתרונות
+                        pros = []
+                        if is_whale: pros.append("נפח מסחר חריג מעיד על כניסת לווייתנים מוסדית 🐋")
+                        if is_rs_strong: pros.append("עוצמה יחסית (RS) גבוהה מבית ה-S&P 500 👑")
+                        if price > current_vwma: pros.append("המחיר נתמך מעל הממוצע המשוקלל בנפח (VWMA 20)")
+                        if adx_val > 25: pros.append(f"מגמה חזקה וברורה בשוק (ADX: {adx_val:.1f})")
+
+                        # בניית חסרונות וסיכונים
+                        cons = []
+                        if rsi_val > 68: cons.append(f"מדד RSI ברמת קניית יתר ({rsi_val:.1f}) - סיכון לתיקון טכני נרחב")
+                        if is_squeeze: cons.append("הקפיץ (TTM Squeeze) עדיין דחוס - הפריצה הסופית עוד לא יצאה לפועל")
+                        if price > sma20_val * 1.07: cons.append("המחיר מתוח מדי מעל ממוצע 20 (מרחק גדול מנקודת התמיכה)")
+
+                        # אסטרטגיית כניסה מומלצת
+                        ideal_entry = current_vwma if price > current_vwma * 1.03 else price
+                        suggested_sl = ideal_entry - (1.5 * atr_val)
+                        suggested_tp = ideal_entry + (3.0 * atr_val)
+
                         return {
                             "סימול": actual_ticker, "מחיר": f"{curr}{price:.2f}", "AI": f"{avg_p:.1f}%", 
-                            "לווייתן": whale, "קפיץ": sqz, "עוצמה RS": rs_status
+                            "לווייתן": whale, "קפיץ": sqz, "עוצמה RS": rs_status,
+                            "ai_raw": avg_p, "מחיר_נקי": price, "curr": curr,
+                            "rsi": rsi_val, "adx": adx_val, "vwma": current_vwma, "sma20": sma20_val, "atr": atr_val,
+                            "pros": pros, "cons": cons,
+                            "ideal_entry": ideal_entry, "suggested_sl": suggested_sl, "suggested_tp": suggested_tp
                         }
         except Exception:
             pass
         return None
 
     if st.button("🔎 התחל בסריקת צלף מקבילית"):
-        if "רדאר מסתובב" in scan_group:
+        if "מאגר מורחב" in scan_group or "הכל" in scan_group:
             target_list = random.sample(all_tickers, min(1500, len(all_tickers)))
-            st.info(f"🎲 מגריל כעת {len(target_list)} מניות מתוך המאגר החוקי ל-BLINK...")
+            st.info(f"🎲 מגריל כעת {len(target_list)} מניות מתוך מאגר של {len(all_tickers)} מניות...")
         else:
             target_list = THEMATIC_TICKERS[scan_group]
             
@@ -508,11 +590,61 @@ elif app_mode == "🚀 צייד הזדמנויות שוק":
 
     if st.session_state.last_scan_results is not None:
         if len(st.session_state.last_scan_results) > 0:
-            st.success(f"💎 נמצאו {len(st.session_state.last_scan_results)} יהלומים התואמים ל-BLINK.")
-            st.dataframe(pd.DataFrame(st.session_state.last_scan_results), use_container_width=True)
+            st.success(f"💎 נמצאו {len(st.session_state.last_scan_results)} יהלומים בשוק.")
+            
+            # הצגת הטבלה הראשית
+            display_df = pd.DataFrame([{
+                "סימול": r["סימול"], "מחיר": r["מחיר"], "AI": r["AI"], 
+                "לווייתן": r["לווייתן"], "קפיץ": r["קפיץ"], "עוצמה RS": r["עוצמה RS"]
+            } for r in st.session_state.last_scan_results])
+            
+            st.dataframe(display_df, use_container_width=True)
+            
             if st.button("📲 שלח התראות קנייה לטלגרם"):
                 msg = "💎 *יהלומים זוהו בצייד (מוסדיים בפנים):*\n\n" + "\n".join([f"🔥 *{r['סימול']}* | קפיץ: {r['קפיץ']} | לווייתן: {r['לווייתן']}" for r in st.session_state.last_scan_results])
                 send_telegram_msg(tg_token, tg_chat_id, msg)
+
+            st.markdown("---")
+            st.subheader("🔬 ניתוח עומק ואסטרטגיית מסחר ליהלומים המובילים")
+            st.caption("האלגוריתם מפרק את האיתותים וממליץ על פוזיציות נוחות למניעת קנייה בשיא:")
+
+            # מיון היהלומים לפי הסתברות AI מהגבוה לנמוך
+            sorted_diamonds = sorted(st.session_state.last_scan_results, key=lambda x: x["ai_raw"], reverse=True)
+
+            for d in sorted_diamonds:
+                c = d["curr"]
+                with st.expander(f"💎 **{d['סימול']}** - מחיר נוכחי: {d['מחיר']} | הסתברות AI: {d['AI']}", expanded=True):
+                    col_p, col_c = st.columns(2)
+                    
+                    with col_p:
+                        st.markdown("##### ✅ יתרונות וסימני כוח (למה כן?)")
+                        if d["pros"]:
+                            for pro in d["pros"]:
+                                st.markdown(f"• {pro}")
+                        else:
+                            st.write("• איתות מבוסס מומנטום חיובי ושילוב אינדיקטורים בסיסי.")
+
+                    with col_c:
+                        st.markdown("##### ⚠️ חסרונות וסיכונים (ממה להיזהר?)")
+                        if d["cons"]:
+                            for con in d["cons"]:
+                                st.markdown(f"• {con}")
+                        else:
+                            st.write("• לא זוהו חריגות סיכון מיידיות (RSI ומרחק מממוצע תקינים).")
+
+                    st.markdown("---")
+                    st.markdown("##### 💡 תוכנית עבודה ופוזיציה נוחה לתזמון כניסה:")
+                    
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("מחיר כניסה מומלץ (Pullback)", f"{c}{d['ideal_entry']:.2f}")
+                    m2.metric("קטיעת הפסד (Stop Loss)", f"{c}{d['suggested_sl']:.2f}")
+                    m3.metric("יעד רווח (Take Profit)", f"{c}{d['suggested_tp']:.2f}")
+
+                    if d['מחיר_נקי'] > d['vwma'] * 1.03:
+                        st.info(f"📌 **המלצת אלגוריתם:** המניה מתוחה מעט מעל ה-VWMA ({c}{d['vwma']:.2f}). מומלץ לא לרדוף אחרי המחיר בשיא, אלא להציב פקודת קנייה (Limit) באזור {c}{d['ideal_entry']:.2f} קרוב ל-VWMA.")
+                    else:
+                        st.success(f"🎯 **המלצת אלגוריתם:** המניה נמצאת כרגע בנקודת כניסה נוחה וקרובה מאוד לאזורי התמיכה המוסדיים ({c}{d['vwma']:.2f}).")
+
         else:
             st.warning("לא נמצאו יהלומים בסריקה האחרונה. המתן להזדמנויות חדשות!")
 
@@ -528,8 +660,9 @@ elif app_mode == "💼 ניהול תיק השקעות":
         progress_bar = st.progress(0)
         for idx, trade in enumerate(st.session_state.portfolio):
             ticker = trade['ticker']
-            df, curr, actual_ticker = fetch_live_data(ticker)
+            df, curr, actual_ticker_or_errors = fetch_live_data(ticker)
             if df is not None:
+                actual_ticker = actual_ticker_or_errors
                 processed = process_features_and_model(df)
                 if processed[0] is not None:
                     df = processed[0]
